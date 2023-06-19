@@ -1,0 +1,26 @@
+.{
+	.name = "duckdb-proxy",
+	.version = "0.0.0",
+	.dependencies = .{
+		.zuckdb = .{
+			.url = "https://github.com/karlseguin/zuckdb.zig/archive/1797386dc2935602bd23410054a50fafa2116c2b.tar.gz",
+			.hash = "1220303db27c9689c28bb4f625efdc66dd672bbbffd75cea8df818bfcc595d700cbf"
+		},
+		.httpz = .{
+			.url = "https://github.com/karlseguin/http.zig/archive/14bf861a8c447d45f1b6c76d9b7411b7699ba1ae.tar.gz",
+			.hash = "1220e2b9f62b612273e4cced2d63eeef62a3d3949ce583d87f6a834648454bc038b1"
+		},
+		.logz = .{
+			.url = "https://github.com/karlseguin/log.zig/archive/54f7ce49437f1163e85c90a168b974ea18e03abd.tar.gz",
+			.hash = "12207768b4f794c2532bf10ac97ca4243b998bf7d8fa0f6cae442b2e1ca984ff49a5"
+		},
+		.typed = .{
+			.url = "https://github.com/karlseguin/typed.zig/archive/e7385018b6b42274ca1080f6f54821aa8d0e5e82.tar.gz",
+			.hash = "122052061df9b0c31b2f75033b5c92085e0d5115ab92bc2c4e36a301e07e733a4120"
+		},
+		.validate = .{
+			.url = "https://github.com/karlseguin/validate.zig/archive/3edd67b6c0a874c8440671b03db862970b75b9f7.tar.gz",
+			.hash = "122068a8d40a86f1a4244d65088c92b1992685d19e274e1b23d407a4137d846f53ea"
+		},
+	},
+}

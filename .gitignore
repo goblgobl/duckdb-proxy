@@ -1,0 +1,5 @@
+.DS_Store
+lib/duckdb
+zig-out/
+zig-cache/
+tests/db.duckdb
