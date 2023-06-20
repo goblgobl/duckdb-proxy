@@ -58,8 +58,6 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 		return error.Validation;
 	}
 
-	// executeOwned means the returns rows (or err) now own the stmt (aka
-	// when we call deinit, they'll free the statement as well)
 	var rows = switch (stmt.execute(null)) {
 		.ok => |rows| rows,
 		.err => |err| return dproxy.duckdbError("Mutate.run", err, env.logger),
@@ -68,23 +66,48 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 
 	res.content_type = .JSON;
 
+	// AFAIC, DuckDB's API is broken when trying to get the changed rows. There's
+	// a duckdb_rows_changed, but it really broken. You see, internally, an insert
+	// or update or delete stores the # of affected rows in the returned result.
+	// But this, of course, doesn't work when the statement includes a
+	// "returning...". So on insert/delete/update we can get a row back without
+	// any way to tell whether it's the result of a "returning ..." or if it's
+	// the internal changed row (internally called CHANGED_ROWS result).
+	// What's worse is that if we call `duckdb_rows_changed`, it'll consume the
+	// first row of the result, whether it's a `CHANGED_ROWS` or a real row from
+	// returning ....
 
-	// DuckDB is inconsistent (and I think buggy) when it comes to the result
-	// returned from an insert/update/delete depending on whether or not there's
-	// a "returning" statement AND the order in which the underlyign functions
-	// are called.
+	// Despite the above (or maybe because of it), we're going to special-case
+	// a result with a single column, of type i64 (DUCKDB_TYPE_BIGINT) where the
+	// column name is "Count". This is a common case: it's the result from a
+	// insert/update/delete without a "returning". It's still ambiguous: maybe
+	// the statement had "returning Count"; - we can't tell. But it doesn't matter
+	// even if it IS a returning, it'll be handled the same way
+	if (rows.column_count == 1 and rows.column_types[0] == 5) {
+		const column_name = rows.columnName(0);
+		// column_name is a [*c]const u8, hence this unlooped comparison
+		if (column_name[0] == 'C' and column_name[1] == 'o' and column_name[2] == 'u' and column_name[3] == 'n' and column_name[4] == 't' and column_name[5] == 0) {
+			var optional_count: ?i64 = 0;
+			if (try rows.next()) |row| {
+				optional_count = row.get(i64, 0);
+			}
+			const count = optional_count orelse {
+				res.body = "{\"cols\":[],\"rows\":[]}";
+				return;
+			};
 
-	// DO NOT REMOVE THIS LINE. Calling rows.changed() mutates the duckdb result
-	// object and pops off the magic `CHANGED_ROWS` row. We need this magic row
-	// removed, else our while loop will assume this is an an actual "returning ..." row
-	// const changed = rows.changed();
-	// std.debug.print("Changed: {d}\n", .{changed});
-	// if (changed > 0) {
-	// 	// The one thing we know for sure is that if duckdb_rows_changed (which is
-	// 	// what rows.changed() calls) returns a value > 0, then "returning" was not used.
-	// 	res.body = try std.fmt.allocPrint(aa, "{{\"changed\":{d},\"cols\":[],\"rows\":[]}}", .{changed});
-	// 	return;
-	// }
+			if (count == 0) {
+				// further special case count == 0 (very common)
+				res.body = "{\"cols\":[\"Count\"],\"rows\":[[0]]}";
+			} else if (count == 1) {
+				// further special case count == 1 (very common)
+				res.body = "{\"cols\":[\"Count\"],\"rows\":[[1]]}";
+			} else {
+				res.body = try std.fmt.allocPrint(aa, "{{\"cols\":[\"Count\"],\"rows\":[[{d}]]}}", .{count});
+			}
+			return;
+		}
+	}
 
 	var column_types = try aa.alloc(zuckdb.ParameterType, rows.column_count);
 	for (0..column_types.len) |i| {
