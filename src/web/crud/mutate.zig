@@ -117,57 +117,22 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 	var buf = std.ArrayList(u8).init(aa);
 	var writer = buf.writer();
 
+	var typed_row = try aa.alloc(typed.Value, column_types.len);
+
 	// write our preamble
-	try buf.appendSlice("{\n \"rows\":[\n  ");
+	try buf.appendSlice("{\n \"rows\":[");
 	try res.chunk(buf.items);
 
 	var row_count: usize = 0;
+	if (try rows.next()) |row| {
+		try translateRow(aa, row, column_types, typed_row);
+		try res.chunk(try serializeRow(typed_row, "\n  ", &buf, writer));
+		row_count = 1;
+	}
 	// convert each result row into a []typed.Value (which we can JSON serialize)
-	var typed_row = try aa.alloc(typed.Value, column_types.len);
 	while (try rows.next()) |row| {
-		buf.clearRetainingCapacity();
-		for (column_types, 0..) |ctype, i| {
-			const typed_value = switch (ctype) {
-				.varchar, .blob => if (row.get([]u8, i)) |v| typed.new(v) else NULL_VALUE,
-				.i8 => if (row.get(i8, i)) |v| typed.new(v) else NULL_VALUE,
-				.i16 => if (row.get(i16, i)) |v| typed.new(v) else NULL_VALUE,
-				.i32 => if (row.get(i32, i)) |v| typed.new(v) else NULL_VALUE,
-				.i64 => if (row.get(i64, i)) |v| typed.new(v) else NULL_VALUE,
-				.i128 => if (row.get(i128, i)) |v| typed.new(v) else NULL_VALUE,
-				.u8 => if (row.get(u8, i)) |v| typed.new(v) else NULL_VALUE,
-				.u16 => if (row.get(u16, i)) |v| typed.new(v) else NULL_VALUE,
-				.u32 => if (row.get(u32, i)) |v| typed.new(v) else NULL_VALUE,
-				.u64 => if (row.get(u64, i)) |v| typed.new(v) else NULL_VALUE,
-				.f32 => if (row.get(f32, i)) |v| typed.new(v) else NULL_VALUE,
-				.f64, .decimal => if (row.get(f64, i)) |v| typed.new(v) else NULL_VALUE,
-				.bool => if (row.get(bool, i)) |v| typed.new(v) else NULL_VALUE,
-				.uuid => if (row.get(zuckdb.UUID, i)) |v| typed.new(try aa.dupe(u8, &v)) else NULL_VALUE,
-				.date => blk: {
-					if (row.get(zuckdb.Date, i)) |date| {
-						break :blk typed.new(typed.Date{
-							.year = @intCast(i16, date.year),
-							.month = @intCast(u8, date.month),
-							.day = @intCast(u8, date.day),
-						});
-					} else break :blk NULL_VALUE;
-				},
-				.time => blk: {
-					if (row.get(zuckdb.Time, i)) |time| {
-						break :blk typed.new(typed.Time{
-							.hour = @intCast(u8, time.hour),
-							.min =  @intCast(u8, time.min),
-							.sec =  @intCast(u8, time.sec),
-						});
-					} else break :blk NULL_VALUE;
-				},
-				.timestamp => if (row.get(i64, i)) |v| typed.new(typed.Timestamp{.micros = v}) else NULL_VALUE,
-				else => error.UnsupportedValueType,
-			};
-			typed_row[i] = typed_value catch (typed.new(try std.fmt.allocPrint(aa, "Cannot serialize: {any}", .{ctype})) catch unreachable);
-		}
-
-		try std.json.stringify(typed_row, .{}, writer);
-		try res.chunk(buf.items);
+		try translateRow(aa, row, column_types, typed_row);
+		try res.chunk(try serializeRow(typed_row, ",\n  ", &buf, writer));
 		row_count += 1;
 	}
 
@@ -185,6 +150,55 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 		try buf.appendSlice("]}");
 		try res.chunk(buf.items);
 	}
+}
+
+fn translateRow(aa: Allocator, row: zuckdb.Row, column_types: []zuckdb.ParameterType, into: []typed.Value) !void {
+	for (column_types, 0..) |ctype, i| {
+		const typed_value = switch (ctype) {
+			.varchar, .blob => if (row.get([]u8, i)) |v| typed.new(v) else NULL_VALUE,
+			.i8 => if (row.get(i8, i)) |v| typed.new(v) else NULL_VALUE,
+			.i16 => if (row.get(i16, i)) |v| typed.new(v) else NULL_VALUE,
+			.i32 => if (row.get(i32, i)) |v| typed.new(v) else NULL_VALUE,
+			.i64 => if (row.get(i64, i)) |v| typed.new(v) else NULL_VALUE,
+			.i128 => if (row.get(i128, i)) |v| typed.new(v) else NULL_VALUE,
+			.u8 => if (row.get(u8, i)) |v| typed.new(v) else NULL_VALUE,
+			.u16 => if (row.get(u16, i)) |v| typed.new(v) else NULL_VALUE,
+			.u32 => if (row.get(u32, i)) |v| typed.new(v) else NULL_VALUE,
+			.u64 => if (row.get(u64, i)) |v| typed.new(v) else NULL_VALUE,
+			.f32 => if (row.get(f32, i)) |v| typed.new(v) else NULL_VALUE,
+			.f64, .decimal => if (row.get(f64, i)) |v| typed.new(v) else NULL_VALUE,
+			.bool => if (row.get(bool, i)) |v| typed.new(v) else NULL_VALUE,
+			.uuid => if (row.get(zuckdb.UUID, i)) |v| typed.new(try aa.dupe(u8, &v)) else NULL_VALUE,
+			.date => blk: {
+				if (row.get(zuckdb.Date, i)) |date| {
+					break :blk typed.new(typed.Date{
+						.year = @intCast(i16, date.year),
+						.month = @intCast(u8, date.month),
+						.day = @intCast(u8, date.day),
+					});
+				} else break :blk NULL_VALUE;
+			},
+			.time => blk: {
+				if (row.get(zuckdb.Time, i)) |time| {
+					break :blk typed.new(typed.Time{
+						.hour = @intCast(u8, time.hour),
+						.min =  @intCast(u8, time.min),
+						.sec =  @intCast(u8, time.sec),
+					});
+				} else break :blk NULL_VALUE;
+			},
+			.timestamp => if (row.get(i64, i)) |v| typed.new(typed.Timestamp{.micros = v}) else NULL_VALUE,
+			else => error.UnsupportedValueType,
+		};
+		into[i] = typed_value catch (typed.new(try std.fmt.allocPrint(aa, "Cannot serialize: {any}", .{ctype})) catch unreachable);
+	}
+}
+
+fn serializeRow(row: []typed.Value, prefix: []const u8, buf: *std.ArrayList(u8), writer: anytype) ![]const u8 {
+	buf.clearRetainingCapacity();
+	try buf.appendSlice(prefix);
+	try std.json.stringify(row, .{}, writer);
+	return buf.items;
 }
 
 const t = dproxy.testing;
@@ -365,5 +379,20 @@ test "mutate: every type" {
 			"over 9000",
 			"804b6dd4-d23b-4ea0-af2a-e3bf39bca496"}
 		}
+	});
+}
+
+test "mutate: returning multiple rows" {
+	var tc = t.context(.{});
+	defer tc.deinit();
+
+	tc.web.json(.{
+		.sql = "insert into everythings (col_tinyint) values (1), (2), (3) returning col_tinyint",
+		.params = .{}
+	});
+	handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
+	try tc.web.expectJson(.{
+		.cols = .{"col_tinyint"},
+		.rows = .{.{1}, .{2}, .{3}}
 	});
 }
