@@ -83,7 +83,7 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 	// insert/update/delete without a "returning". It's still ambiguous: maybe
 	// the statement had "returning Count"; - we can't tell. But it doesn't matter
 	// even if it IS a returning, it'll be handled the same way
-	if (rows.column_count == 1 and rows.column_types[0] == 5) {
+	if (rows.column_count == 1 and rows.column_types[0] == 5 and rows.count() == 1) {
 		const column_name = rows.columnName(0);
 		// column_name is a [*c]const u8, hence this unlooped comparison
 		if (column_name[0] == 'C' and column_name[1] == 'o' and column_name[2] == 'u' and column_name[3] == 'n' and column_name[4] == 't' and column_name[5] == 0) {
@@ -92,7 +92,7 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 				optional_count = row.get(i64, 0);
 			}
 			const count = optional_count orelse {
-				res.body = "{\"cols\":[],\"rows\":[]}";
+				res.body = "{\"cols\":[\"Count\"],\"rows\":[[null]]}";
 				return;
 			};
 
@@ -395,4 +395,37 @@ test "mutate: returning multiple rows" {
 		.cols = .{"col_tinyint"},
 		.rows = .{.{1}, .{2}, .{3}}
 	});
+}
+
+// we have special case handling for a single row returned as an i64 "Count"
+test "mutate: special count case" {
+	var tc = t.context(.{});
+	defer tc.deinit();
+
+	{
+		tc.web.json(.{.sql = "insert into everythings (col_bigint) values (0) returning col_bigint as Count"});
+		handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
+		try tc.web.expectJson(.{.cols = .{"Count"}, .rows = .{.{0}}});
+	}
+
+	{
+		tc.reset();
+		tc.web.json(.{.sql = "insert into everythings (col_bigint) values (1) returning col_bigint as \"Count\"",});
+		handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
+		try tc.web.expectJson(.{.cols = .{"Count"}, .rows = .{.{1}}});
+	}
+
+	{
+		tc.reset();
+		tc.web.json(.{.sql = "insert into everythings (col_bigint) values (1) returning col_bigint as \"Count\"",});
+		handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
+		try tc.web.expectJson(.{.cols = .{"Count"}, .rows = .{.{1}}});
+	}
+
+	{
+		tc.reset();
+		tc.web.json(.{.sql = "insert into everythings (col_bigint) values (null) returning col_bigint as \"Count\"",});
+		handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
+		try tc.web.expectJson(.{.cols = .{"Count"}, .rows = .{.{null}}});
+	}
 }
