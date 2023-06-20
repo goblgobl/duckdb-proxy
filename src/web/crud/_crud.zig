@@ -6,7 +6,9 @@ pub const dproxy = web.dproxy;
 
 // expose handlers
 const _select = @import("select.zig");
+const _mutate = @import("mutate.zig");
 pub const select = _select.handler;
+pub const mutate = _select.handler;
 
 pub var sql_validator: *validate.String(void) = undefined;
 pub var params_validator: *validate.Array(void) = undefined;
@@ -20,4 +22,5 @@ pub fn init(builder: *validate.Builder(void)) !void {
 	params_validator = builder.array(null, .{});
 
 	try _select.init(builder);
+	try _mutate.init(builder);
 }

@@ -30,6 +30,7 @@ pub fn start(app: *App) !void {
 
 	var router = server.router();
 	router.post("/api/1/select", crud.select);
+	router.post("/api/1/mutate", crud.mutate);
 	try server.listen();
 }
 

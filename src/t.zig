@@ -1,14 +1,21 @@
 // Test helpers.
 const std = @import("std");
 const logz = @import("logz");
+const typed = @import("typed");
+const zuckdb = @import("zuckdb");
 const validate = @import("validate");
 pub const web = @import("httpz").testing;
 const dproxy = @import("dproxy.zig");
 
-pub const expect = std.testing.expect;
 pub const allocator = std.testing.allocator;
 
-pub const expectEqual = std.testing.expectEqual;
+// std.testing.expectEqual won't coerce expected to actual, which is a problem
+// when expected is frequently a comptime.
+// https://github.com/ziglang/zig/issues/4437
+pub fn expectEqual(expected: anytype, actual: anytype) !void {
+	try std.testing.expectEqual(@as(@TypeOf(actual), expected), actual);
+}
+
 pub const expectError = std.testing.expectError;
 pub const expectSlice = std.testing.expectEqualSlices;
 pub const expectString = std.testing.expectEqualStrings;
@@ -16,7 +23,6 @@ pub fn expectDelta(expected: anytype, actual: @TypeOf(expected), delta: @TypeOf(
 	try expectEqual(true, expected - delta <= actual);
 	try expectEqual(true, expected + delta >= actual);
 }
-
 
 // We will _very_ rarely use this. Zig test doesn't have test lifecycle hooks. We
 // can setup globals on startup, but we can't clean this up properly. If we use
@@ -33,13 +39,53 @@ pub fn restoreLogs() void {
 	logz.setup(leaking_allocator, .{.pool_size = 2, .level = .Error, .output = .stderr}) catch unreachable;
 }
 
+// Run once, in main.zig's nameless test {...} block
 pub fn setup() void {
 	restoreLogs();
 
 	var builder = validate.Builder(void).init(leaking_allocator) catch unreachable;
 	@import("init.zig").init(&builder) catch unreachable;
+
+	{
+		// create some dummy data
+		const db = zuckdb.DB.init(allocator, "tests/db.duckdb", .{}).ok;
+		defer db.deinit();
+
+		const conn = db.conn() catch unreachable;
+		defer conn.deinit();
+
+		conn.execZ("drop table if exists everythings") catch unreachable;
+
+		conn.execZ(
+			\\ create table everythings (
+			\\   col_tinyint tinyint,
+			\\   col_smallint smallint,
+			\\   col_integer integer,
+			\\   col_bigint bigint,
+			\\   col_hugeint hugeint,
+			\\   col_utinyint utinyint,
+			\\   col_usmallint usmallint,
+			\\   col_uinteger uinteger,
+			\\   col_ubigint ubigint,
+			\\   col_real real,
+			\\   col_double double,
+			\\   col_decimal decimal(5, 2),
+			\\   col_bool bool,
+			\\   col_date date,
+			\\   col_time time,
+			\\   col_timestamp timestamp,
+			\\   col_blob blob,
+			\\   col_varchar varchar,
+			\\   col_uuid uuid
+			\\ )
+		) catch unreachable;
+	}
 }
 
+// The test context contains an *App and *Env that we can use in our tests.
+// It also includes a httpz.testing instance, so that we can easily test http
+// handlers. It uses and exposes an arena allocator so that, any memory we need
+// to allocate within the test itself, doesn't have to be micro-managed.
 pub fn context(_: Context.Config) *Context {
 	var arena = allocator.create(std.heap.ArenaAllocator) catch unreachable;
 	arena.* = std.heap.ArenaAllocator.init(allocator);
@@ -93,5 +139,39 @@ pub const Context = struct {
 
 	pub fn expectInvalid(self: Context, expectation: anytype) !void {
 		return validate.testing.expectInvalid(expectation, self.env.validator);
+	}
+
+	pub fn reset(self: *Context) void {
+		self.env.validator.reset();
+		self.web.deinit();
+		self.web = web.init(.{});
+	}
+
+	pub fn getRow(self: *Context, sql: [:0]const u8, values: anytype) ?typed.Map {
+		const conn = self.app.dbs.acquire() catch unreachable;
+		defer self.app.dbs.release(conn);
+
+		const row = switch (conn.rowZ(sql, values)) {
+			.ok => |row| row orelse return null,
+			.err => |err| {
+				std.log.err("GetRow: {s}\nErr: {s}", .{sql, err.desc});
+				err.deinit();
+				unreachable;
+			},
+		};
+		defer row.deinit();
+		// ideally, we need to keep `mp` around for as long as the returned map
+		// but eveyrthing we need is in the heap, and it's all allocated by our
+		// context's arena allocator.
+		var mp = row.mapBuilder(self.arena) catch unreachable;
+		return row.toMap(&mp) catch unreachable;
+	}
+
+	pub fn handlerError(self: *Context, err: anyerror) void {
+		switch (err) {
+			error.Validation => self.env.validator.dump() catch unreachable,
+			else => std.debug.print("Unexpected handler error: {any}:\n", .{err}),
+		}
+		unreachable;
 	}
 };

@@ -2,207 +2,238 @@ const std = @import("std");
 const typed = @import("typed");
 const zuckdb = @import("zuckdb");
 const validate = @import("validate");
+const dproxy = @import("dproxy.zig");
 
 const Allocator = std.mem.Allocator;
 
 pub const Parameter = struct {
-	tpe: Type,
-	index: usize,
-	value: typed.Value,
-
-	pub fn init(index: usize, tpe: Type, value: typed.Value) Parameter {
-		return .{
-			.index = index,
-			.tpe = tpe,
-			.value = value,
-		};
-	}
-
-	pub fn validateValue(self: *Parameter, aa: Allocator, validator: *validate.Context(void)) !void {
-		const value = self.value;
+	// This does a lot, but having validation + binding in a single place does
+	// streamline a lot of code.
+	pub fn validateAndBind(aa: Allocator, index: usize, stmt: zuckdb.Stmt, value: typed.Value, validator: *validate.Context(void)) !void {
 		if (std.meta.activeTag(value) == typed.Value.null) {
-			// null is always valid
-			return;
-		}
-
-		validator.field = try validationField(aa, self.index);
-		self.value = switch (self.tpe) {
-			.bool => try bool_validator.validateValue(value, validator),
-			.uuid => try uuid_validator.validateValue(value, validator),
-			.i8 => try i8_validator.validateValue(value, validator),
-			.i16 => try i16_validator.validateValue(value, validator),
-			.i32 => try i32_validator.validateValue(value, validator),
-			.i64 => try i64_validator.validateValue(value, validator),
-			.i128 => try i128_validator.validateValue(value, validator),
-			.u8 => try u8_validator.validateValue(value, validator),
-			.u16 => try u16_validator.validateValue(value, validator),
-			.u32 => try u32_validator.validateValue(value, validator),
-			.u64 => try u64_validator.validateValue(value, validator),
-			.f32 => try f32_validator.validateValue(value, validator),
-			.f64 => try f64_validator.validateValue(value, validator),
-			.decimal => try f64_validator.validateValue(value, validator),
-			.timestamp => try i64_validator.validateValue(value, validator),
-			.varchar => try string_validator.validateValue(value, validator),
-			.blob => try string_validator.validateValue(value, validator),
-			.date => try date_validator.validateValue(value, validator),
-			.time => try time_validator.validateValue(value, validator),
-		};
-	}
-
-	pub fn bind(self: Parameter, stmt: zuckdb.Stmt) !void {
-		const index = self.index;
-		const value = self.value;
-		if (std.meta.activeTag(value) == typed.Value.null) {
-			// null is always valid
 			return stmt.bindDynamic(index, null);
 		}
 
-		switch (self.tpe) {
-			.bool => return stmt.bindDynamic(index, value.get(bool).?),
-			.uuid => return stmt.bindDynamic(index, value.get([]u8).?),
-			.i8 => return stmt.bindDynamic(index, value.get(i8).?),
-			.i16 => return stmt.bindDynamic(index, value.get(i16).?),
-			.i32 => return stmt.bindDynamic(index, value.get(i32).?),
-			.i64 => return stmt.bindDynamic(index, value.get(i64).?),
-			.i128 => return stmt.bindDynamic(index, value.get(i128).?),
-			.u8 => return stmt.bindDynamic(index, value.get(u8).?),
-			.u16 => return stmt.bindDynamic(index, value.get(u16).?),
-			.u32 => return stmt.bindDynamic(index, value.get(u32).?),
-			.u64 => return stmt.bindDynamic(index, value.get(u64).?),
-			.f32 => return stmt.bindDynamic(index, value.get(f32).?),
-			.f64 => return stmt.bindDynamic(index, value.get(f64).?),
-			.decimal => return stmt.bindDynamic(index, value.get(f64).?),
-			.timestamp => return stmt.bindDynamic(index, value.get(i64).?),
-			.varchar => return stmt.bindDynamic(index, value.get([]u8).?),
-			.blob => return stmt.bindDynamic(index, value.get([]u8).?),
+		// for the "field" of the error message
+		validator.field = null;
+		validator.force_prefix = try fieldName(aa, index);
+		switch (stmt.parameterType(index)) {
+			.bool => {
+				switch (try bool_validator.validateValue(value, validator)) {
+					.bool => |v| return stmt.bindDynamic(index, v),
+					else => return stmt.bindDynamic(index, null),
+				}
+			},
+			.uuid => {
+				switch (try uuid_validator.validateValue(value, validator)) {
+					.string => |v| return stmt.bindDynamic(index, v),
+					else => return stmt.bindDynamic(index, null),
+				}
+			},
+			.i8 => {
+				switch (try i8_validator.validateValue(value, validator)) {
+					.i8 => |v| return stmt.bindDynamic(index, v),
+					else => return stmt.bindDynamic(index, null),
+				}
+			},
+			.i16 => {
+				switch (try i16_validator.validateValue(value, validator)) {
+					.i16 => |v| return stmt.bindDynamic(index, v),
+					else => return stmt.bindDynamic(index, null),
+				}
+			},
+			.i32 => {
+				switch (try i32_validator.validateValue(value, validator)) {
+					.i32 => |v| return stmt.bindDynamic(index, v),
+					else => return stmt.bindDynamic(index, null),
+				}
+			},
+			.i64 => {
+				switch (try i64_validator.validateValue(value, validator)) {
+					.i64 => |v| return stmt.bindDynamic(index, v),
+					else => return stmt.bindDynamic(index, null),
+				}
+			},
+			.i128 => {
+				switch (try i128_validator.validateValue(value, validator)) {
+					.i128 => |v| return stmt.bindDynamic(index, v),
+					else => return stmt.bindDynamic(index, null),
+				}
+			},
+			.u8 => {
+				switch (try u8_validator.validateValue(value, validator)) {
+					.u8 => |v| return stmt.bindDynamic(index, v),
+					else => return stmt.bindDynamic(index, null),
+				}
+			},
+			.u16 => {
+				switch (try u16_validator.validateValue(value, validator)) {
+					.u16 => |v| return stmt.bindDynamic(index, v),
+					else => return stmt.bindDynamic(index, null),
+				}
+			},
+			.u32 => {
+				switch (try u32_validator.validateValue(value, validator)) {
+					.u32 => |v| return stmt.bindDynamic(index, v),
+					else => return stmt.bindDynamic(index, null),
+				}
+			},
+			.u64 => {
+				switch (try u64_validator.validateValue(value, validator)) {
+					.u64 => |v| return stmt.bindDynamic(index, v),
+					else => return stmt.bindDynamic(index, null),
+				}
+			},
+			.f32 => {
+				switch (try f32_validator.validateValue(value, validator)) {
+					.f32 => |v| return stmt.bindDynamic(index, v),
+					else => return stmt.bindDynamic(index, null),
+				}
+			},
+			.f64 => {
+				switch (try f64_validator.validateValue(value, validator)) {
+					.f64 => |v| return stmt.bindDynamic(index, v),
+					else => return stmt.bindDynamic(index, null),
+				}
+			},
+			.decimal => {
+				switch (try f64_validator.validateValue(value, validator)) {
+					.f64 => |v| return stmt.bindDynamic(index, v),
+					else => return stmt.bindDynamic(index, null),
+				}
+			},
+			.timestamp => {
+				switch (try i64_validator.validateValue(value, validator)) {
+					.i64 => |v| return stmt.bindDynamic(index, v),
+					else => return stmt.bindDynamic(index, null),
+				}
+			},
+			.varchar => {
+				switch (try string_validator.validateValue(value, validator)) {
+					.string => |v| return stmt.bindDynamic(index, v),
+					else => return stmt.bindDynamic(index, null),
+				}
+			},
+			.blob => {
+				switch (try string_validator.validateValue(value, validator)) {
+					.string => |v| return stmt.bindDynamic(index, v),
+					else => return stmt.bindDynamic(index, null),
+				}
+			},
 			.date => {
-				const date = value.get(typed.Date).?;
-				return stmt.bindDynamic(index, zuckdb.Date{
-					.year = date.year,
-					.month = @intCast(i8, date.month),
-					.day = @intCast(i8, date.day),
-				});
+				switch (try date_validator.validateValue(value, validator)) {
+					.date => |v| {
+						return stmt.bindDynamic(index, zuckdb.Date{
+							.year = v.year,
+							.month = @intCast(i8, v.month),
+							.day = @intCast(i8, v.day),
+						});
+					},
+					else => return stmt.bindDynamic(index, null),
+				}
 			},
 			.time => {
-				const time = value.get(typed.Time).?;
-				return stmt.bindDynamic(index, zuckdb.Time{
-					.hour = @intCast(i8, time.hour),
-					.min = @intCast(i8, time.min),
-					.sec = @intCast(i8, time.sec),
-					.micros = @intCast(i32, time.micros),
-				});
+				switch (try time_validator.validateValue(value, validator)) {
+					.time => |v| {
+						return stmt.bindDynamic(index, zuckdb.Time{
+							.hour = @intCast(i8, v.hour),
+							.min = @intCast(i8, v.min),
+							.sec = @intCast(i8, v.sec),
+							.micros = @intCast(i32, v.micros),
+						});
+					},
+					else => return stmt.bindDynamic(index, null),
+				}
 			},
+			else => |tpe| {
+				const type_name = @tagName(tpe);
+				return validator.add(.{
+					.code = dproxy.val.UNSUPPORTED_PARAMETER_TYPE,
+					.err = try std.fmt.allocPrint(aa, "Unsupported parameter type: ${d} - ${s}", .{index+1, type_name}),
+					.data = try validator.dataBuilder().put("index", index).put("type", type_name).done(),
+				});
+			}
 		}
 	}
 
-	pub fn mapType(ztpe: zuckdb.ParameterType) ?Type {
-		switch (ztpe) {
-			.bool => return .bool,
-			.uuid => return .uuid,
-			.i8 => return .i8,
-			.i16 => return .i16,
-			.i32 => return .i32,
-			.i64 => return .i64,
-			.i128 => return .i128,
-			.u8 => return .u8,
-			.u16 => return .u16,
-			.u32 => return .u32,
-			.u64 => return .u64,
-			.f32 => return .f32,
-			.f64 => return .f64,
-			.decimal => return .decimal,
-			.timestamp => return .timestamp,
-			.varchar => return .varchar,
-			.blob => return .blob,
-			.date => return .date,
-			.time => return .time,
-			.interval => return null,
-			.@"enum" => return null, // https://github.com/duckdb/duckdb/discussions/7635
-			.unknown => return null,  // can't support what the driver doesn't
-		}
-	}
+	// A few places need to generate this error, having it here makes sure that it's consistent
+	pub fn invalidParameterCount(aa: Allocator, stmt_count: usize, input_count: usize, validator: *validate.Context(void)) !void {
+		const err_format = "SQL statement requires {d} parameter{s}, {d} {s} given";
+		const err = try std.fmt.allocPrint(aa, err_format, .{
+			stmt_count,
+			if (stmt_count == 1) "" else "s",
+			input_count,
+			if (input_count == 1) "was" else "were",
+		});
 
-	pub const Type = enum {
-		bool,
-		uuid,
-		i8,
-		i16,
-		i32,
-		i64,
-		i128,
-		u8,
-		u16,
-		u32,
-		u64,
-		f32,
-		f64,
-		decimal,
-		timestamp,
-		varchar,
-		blob,
-		date,
-		time,
-	};
+		validator.addInvalidField(.{
+			.err = err,
+			.field = "params",
+			.code = dproxy.val.WRONG_PARAMETER_COUNT,
+			.data = try validator.dataBuilder().put("stmt", stmt_count).put("input", input_count).done(),
+		});
+		return error.Validation;
+	}
 };
 
 // We want to give nice error messages that reference the exact parameter
 // which is invalid. This is an unfortunate detail of our validation framework.
 // Normally, it could take care of it internally, but we're manually validating
 // the params, because it's dynamic, based on the specific query.
-fn validationField(allocator: Allocator, i: usize) !validate.Field {
+fn fieldName(allocator: Allocator, i: usize) ![]const u8 {
 	return switch (i) {
-		0 => .{.name = "", .path = "params.0", .parts = null},
-		1 => .{.name = "", .path = "params.1", .parts = null},
-		2 => .{.name = "", .path = "params.2", .parts = null},
-		3 => .{.name = "", .path = "params.3", .parts = null},
-		4 => .{.name = "", .path = "params.4", .parts = null},
-		5 => .{.name = "", .path = "params.5", .parts = null},
-		6 => .{.name = "", .path = "params.6", .parts = null},
-		7 => .{.name = "", .path = "params.7", .parts = null},
-		8 => .{.name = "", .path = "params.8", .parts = null},
-		9 => .{.name = "", .path = "params.9", .parts = null},
-		10 => .{.name = "", .path = "params.10", .parts = null},
-		11 => .{.name = "", .path = "params.11", .parts = null},
-		12 => .{.name = "", .path = "params.12", .parts = null},
-		13 => .{.name = "", .path = "params.13", .parts = null},
-		14 => .{.name = "", .path = "params.14", .parts = null},
-		15 => .{.name = "", .path = "params.15", .parts = null},
-		16 => .{.name = "", .path = "params.16", .parts = null},
-		17 => .{.name = "", .path = "params.17", .parts = null},
-		18 => .{.name = "", .path = "params.18", .parts = null},
-		19 => .{.name = "", .path = "params.19", .parts = null},
-		20 => .{.name = "", .path = "params.20", .parts = null},
-		21 => .{.name = "", .path = "params.21", .parts = null},
-		22 => .{.name = "", .path = "params.22", .parts = null},
-		23 => .{.name = "", .path = "params.23", .parts = null},
-		24 => .{.name = "", .path = "params.24", .parts = null},
-		25 => .{.name = "", .path = "params.25", .parts = null},
-		26 => .{.name = "", .path = "params.26", .parts = null},
-		27 => .{.name = "", .path = "params.27", .parts = null},
-		28 => .{.name = "", .path = "params.28", .parts = null},
-		29 => .{.name = "", .path = "params.29", .parts = null},
-		30 => .{.name = "", .path = "params.30", .parts = null},
-		31 => .{.name = "", .path = "params.31", .parts = null},
-		32 => .{.name = "", .path = "params.32", .parts = null},
-		33 => .{.name = "", .path = "params.33", .parts = null},
-		34 => .{.name = "", .path = "params.34", .parts = null},
-		35 => .{.name = "", .path = "params.35", .parts = null},
-		36 => .{.name = "", .path = "params.36", .parts = null},
-		37 => .{.name = "", .path = "params.37", .parts = null},
-		38 => .{.name = "", .path = "params.38", .parts = null},
-		39 => .{.name = "", .path = "params.39", .parts = null},
-		40 => .{.name = "", .path = "params.40", .parts = null},
-		41 => .{.name = "", .path = "params.41", .parts = null},
-		42 => .{.name = "", .path = "params.42", .parts = null},
-		43 => .{.name = "", .path = "params.43", .parts = null},
-		44 => .{.name = "", .path = "params.44", .parts = null},
-		45 => .{.name = "", .path = "params.45", .parts = null},
-		46 => .{.name = "", .path = "params.46", .parts = null},
-		47 => .{.name = "", .path = "params.47", .parts = null},
-		48 => .{.name = "", .path = "params.48", .parts = null},
-		49 => .{.name = "", .path = "params.49", .parts = null},
-		50 => .{.name = "", .path = "params.50", .parts = null},
-		else => .{.name = "", .path = try std.fmt.allocPrint(allocator, "params.{d}", .{i})}
+		0 => "params.0",
+		1 => "params.1",
+		2 => "params.2",
+		3 => "params.3",
+		4 => "params.4",
+		5 => "params.5",
+		6 => "params.6",
+		7 => "params.7",
+		8 => "params.8",
+		9 => "params.9",
+		10 => "params.10",
+		11 => "params.11",
+		12 => "params.12",
+		13 => "params.13",
+		14 => "params.14",
+		15 => "params.15",
+		16 => "params.16",
+		17 => "params.17",
+		18 => "params.18",
+		19 => "params.19",
+		20 => "params.20",
+		21 => "params.21",
+		22 => "params.22",
+		23 => "params.23",
+		24 => "params.24",
+		25 => "params.25",
+		26 => "params.26",
+		27 => "params.27",
+		28 => "params.28",
+		29 => "params.29",
+		30 => "params.30",
+		31 => "params.31",
+		32 => "params.32",
+		33 => "params.33",
+		34 => "params.34",
+		35 => "params.35",
+		36 => "params.36",
+		37 => "params.37",
+		38 => "params.38",
+		39 => "params.39",
+		40 => "params.40",
+		41 => "params.41",
+		42 => "params.42",
+		43 => "params.43",
+		44 => "params.44",
+		45 => "params.45",
+		46 => "params.46",
+		47 => "params.47",
+		48 => "params.48",
+		49 => "params.49",
+		50 => "params.50",
+		else => std.fmt.allocPrint(allocator, "params.{d}", .{i}),
 	};
 }
 
@@ -227,15 +258,18 @@ var string_validator: *validate.String(void) = undefined;
 pub fn init(builder: *validate.Builder(void)) !void {
 	// All of these validators are very simple. They largely just assert type
 	// correctness.
+
+	// std.json represents large integers are strings (fail), so we need to enable
+	// test parsing for those.
 	i8_validator = builder.int(i8, .{});
 	i16_validator = builder.int(i16, .{});
 	i32_validator = builder.int(i32, .{});
-	i64_validator = builder.int(i64, .{});
-	i128_validator = builder.int(i128, .{});
+	i64_validator = builder.int(i64, .{.parse = true});
+	i128_validator = builder.int(i128, .{.parse = true});
 	u8_validator = builder.int(u8, .{});
 	u16_validator = builder.int(u16, .{});
 	u32_validator = builder.int(u32, .{});
-	u64_validator = builder.int(u64, .{});
+	u64_validator = builder.int(u64, .{.parse = true});
 	f32_validator = builder.float(f32, .{});
 	f64_validator = builder.float(f64, .{});
 	bool_validator = builder.boolean(.{});

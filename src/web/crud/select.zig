@@ -29,6 +29,8 @@ pub fn init(builder: *validate.Builder(void)) !void {
 pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 	const input = try crud.web.validateBody(env, req, select_validator);
 
+	var validator = env.validator;
+
 	const aa = res.arena;
 	const sql = input.get([]u8, "sql").?;
 	const params = if (input.get(typed.Array, "params")) |p| p.items else &[_]typed.Value{};
@@ -43,22 +45,62 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 	// and (b) the length of the column names.
 	try buf.ensureTotalCapacity(sql.len + 500);
 
-	buf.appendSliceAssumeCapacity("describe ");
-	buf.appendSliceAssumeCapacity(sql);
-	buf.appendAssumeCapacity(0); // null termniate this
-
-	var validator = env.validator;
-
 	const conn = try env.app.dbs.acquire();
 	defer env.app.dbs.release(conn);
 
-	// getQueryInfo runs and parses the describe ORIGNAL_SQL and does a lot of validation
-	const query_info = try getQueryInfo(env, @ptrCast([:0]const u8, buf.items), conn, aa, validator, params);
+	// execute describe ORIGINAL_SQL to extract the column names from the result
+	const column_names = blk: {
+		buf.appendSliceAssumeCapacity("describe ");
+		buf.appendSliceAssumeCapacity(sql);
+		buf.appendAssumeCapacity(0); // null termniate this
+
+		const stmt = switch (conn.prepareZ(@ptrCast([:0]const u8, buf.items))) {
+			.ok => |stmt| stmt,
+			.err => |err| {
+				defer err.deinit();
+				validator.addInvalidField(.{
+					.field = "sql",
+					.err = try aa.dupe(u8, err.desc),
+					.code = dproxy.val.INVALID_SQL,
+				});
+				return error.Validation;
+			}
+		};
+		defer stmt.deinit();
+
+		const parameter_count = stmt.numberOfParameters();
+		if (parameter_count != params.len) {
+			// might as well do this while we're here, no point doing a lot of work
+			// if this isn't right
+			return Parameter.invalidParameterCount(aa, parameter_count, params.len, validator);
+		}
+
+		// for describe, we can bind null to every placeholder and still get the
+		// output that we want
+		for (0..parameter_count) |i| {
+			try stmt.bindDynamic(i, null);
+		}
+
+		var rows = switch (stmt.execute(null)) {
+			.ok => |rows| rows,
+			.err => |err| return dproxy.duckdbError("Select.describe", err, env.logger),
+		};
+		defer rows.deinit();
+
+		var i: usize = 0;
+		var column_names = try aa.alloc([]const u8, rows.count());
+		while (try rows.next()) |row| {
+			column_names[i] = try aa.dupe(u8, row.get([]u8, 0).?);
+			i += 1;
+		}
+
+		break :blk column_names;
+	};
 
 	// If we're here, we have a valid SQL and likely have valid parameters
 	buf.clearRetainingCapacity();
 	try buf.appendSlice("select json_array(");
-	for (query_info.column_names) |column_name| {
+	for (column_names) |column_name| {
 		try buf.append('"');
 		try buf.appendSlice(column_name);
 		try buf.appendSlice("\",");
@@ -71,15 +113,17 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 	try buf.appendSlice(") as t");
 	try buf.append(0); // null terminate
 
-
 	const stmt = switch (conn.prepareZ(@ptrCast([:0]const u8, buf.items))) {
 		.ok => |stmt| stmt,
 		.err => |err| return dproxy.duckdbError("Select.prepare", err, env.logger),
 	};
 	errdefer stmt.deinit();
 
-	for (query_info.parameters) |parameter| {
-		try parameter.bind(stmt);
+	for (params, 0..) |param, i| {
+		try Parameter.validateAndBind(aa, i, stmt, param, validator);
+	}
+	if (!validator.isValid()) {
+		return error.Validation;
 	}
 
 	// Our wrapped SQL always returns a single column (a JSON serialized row, as text)
@@ -98,7 +142,7 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 	buf.clearRetainingCapacity();
 	try buf.appendSlice("{\n \"cols\": [");
 	var writer = buf.writer();
-	for (query_info.column_names) |column_name| {
+	for (column_names) |column_name| {
 		try std.json.encodeJsonString(column_name, .{}, writer);
 		try buf.append(',');
 	}
@@ -106,7 +150,7 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 	buf.shrinkRetainingCapacity(buf.items.len - 1);
 	try buf.appendSlice("],\n \"rows\":[\n   ");
 
-	res.content_type = httpz.ContentType.JSON;
+	res.content_type = .JSON;
 	try res.chunk(buf.items);
 	if (try rows.next()) |first| {
 		try res.chunk(first.get([]u8, 0).?);
@@ -117,82 +161,6 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 	}
 	try res.chunk("\n ]\n}");
 }
-
-const QueryInfo = struct {
-	column_names: [][]const u8,
-	parameters: []Parameter,
-};
-
-fn getQueryInfo(env: *Env, sql: [:0]const u8, conn: zuckdb.Conn, aa: Allocator, validator: *validate.Context(void), params: []const typed.Value) !QueryInfo {
-	const stmt = switch (conn.prepareZ(sql)) {
-		.ok => |stmt| stmt,
-		.err => |err| {
-			defer err.deinit();
-			validator.addInvalidField(.{
-				.field = "sql",
-				.err = try aa.dupe(u8, err.desc),
-				.code = dproxy.val.INVALID_SQL,
-			});
-			return error.Validation;
-		}
-	};
-	defer stmt.deinit();
-
-	const parameter_count = stmt.numberOfParameters();
-	if (parameter_count != params.len) {
-		validator.addInvalidField(.{
-			.field = "params",
-			.err = try std.fmt.allocPrint(aa, "expected {d} parameters but got {d}", .{parameter_count, params.len}),
-			.code = dproxy.val.WRONG_PARAMETER_COUNT,
-			.data = try validator.dataBuilder().put("expected", parameter_count).put("actual", params.len).done(),
-		});
-		return error.Validation;
-	}
-
-	const parameters = try aa.alloc(Parameter, parameter_count);
-
-	for (params, 0..parameter_count) |value, i| {
-		const ztype = stmt.parameterType(i);
-		const tpe = Parameter.mapType(ztype) orelse {
-			validator.addInvalidField(.{
-				.field = try std.fmt.allocPrint(aa, "params.{d}", .{i}),
-				.code = dproxy.val.UNSUPPORTED_PARAMETER_TYPE,
-				.err = try std.fmt.allocPrint(aa, "Unsupported parameter type: ${d} - ${s}", .{i+1, @tagName(ztype)}),
-				.data = try validator.dataBuilder().put("index", i).put("type", @tagName(ztype)).done(),
-			});
-			continue;
-		};
-
-		var parameter = Parameter.init(i, tpe, value);
-		try parameter.validateValue(aa, validator);
-		parameters[i] = parameter;
-		// for the describe, we don't need valid values
-		try stmt.bindDynamic(i, null);
-	}
-
-	if (!validator.isValid()) {
-		return error.Validation;
-	}
-
-	var rows = switch (stmt.execute(null)) {
-		.ok => |rows| rows,
-		.err => |err| return dproxy.duckdbError("Select.describe", err, env.logger),
-	};
-	defer rows.deinit();
-
-	var i: usize = 0;
-	var column_names = try aa.alloc([]const u8, rows.count());
-	while (try rows.next()) |row| {
-		column_names[i] = try aa.dupe(u8, row.get([]u8, 0).?);
-		i += 1;
-	}
-
-	return .{
-		.parameters = parameters,
-		.column_names = column_names,
-	};
-}
-
 
 const t = dproxy.testing;
 test "select: invalid json body" {
@@ -226,9 +194,19 @@ test "select: wrong parameters" {
 	var tc = t.context(.{});
 	defer tc.deinit();
 
-	tc.web.json(.{.sql = "select $1"});
-	try t.expectError(error.Validation, handler(tc.env, tc.web.req, tc.web.res));
-	try tc.expectInvalid(.{.code = dproxy.val.WRONG_PARAMETER_COUNT, .field = "params", .err = "expected 1 parameters but got 0"});
+	{
+		tc.web.json(.{.sql = "select $1"});
+		try t.expectError(error.Validation, handler(tc.env, tc.web.req, tc.web.res));
+		try tc.expectInvalid(.{.code = dproxy.val.WRONG_PARAMETER_COUNT, .field = "params", .err = "SQL statement requires 1 parameter, 0 were given"});
+	}
+
+	{
+		// test different plural form
+		tc.reset();
+		tc.web.json(.{.sql = "select $1, $2", .params = .{1}});
+		try t.expectError(error.Validation, handler(tc.env, tc.web.req, tc.web.res));
+		try tc.expectInvalid(.{.code = dproxy.val.WRONG_PARAMETER_COUNT, .field = "params", .err = "SQL statement requires 2 parameters, 1 was given"});
+	}
 }
 
 test "select: unsupported param type" {
@@ -273,7 +251,6 @@ test "select: single row" {
 	});
 }
 
-
 test "select: multiple rows" {
 	var tc = t.context(.{});
 	defer tc.deinit();
@@ -288,3 +265,6 @@ test "select: multiple rows" {
 		.rows = .{.{"abc", 123}, .{"hello", 932}},
 	});
 }
+
+// mutate.zig tests more parameter type. It does more with parameters, so
+// if things work there, they should work here.
