@@ -115,7 +115,7 @@ pub const Parameter = struct {
 				}
 			},
 			.blob => {
-				switch (try string_validator.validateValue(value, validator)) {
+				switch (try blob_validator.validateValue(value, validator)) {
 					.string => |v| return stmt.bindDynamic(index, v),
 					else => return stmt.bindDynamic(index, null),
 				}
@@ -253,6 +253,7 @@ var uuid_validator: *validate.UUID(void) = undefined;
 var date_validator: *validate.Date(void) = undefined;
 var time_validator: *validate.Time(void) = undefined;
 var string_validator: *validate.String(void) = undefined;
+var blob_validator: *validate.String(void) = undefined;
 
 // Called in init.zig
 pub fn init(builder: *validate.Builder(void)) !void {
@@ -277,4 +278,5 @@ pub fn init(builder: *validate.Builder(void)) !void {
 	date_validator = builder.date(.{.parse = true});
 	time_validator = builder.time(.{.parse = true});
 	string_validator = builder.string(.{});
+	blob_validator = builder.string(.{.decode = .base64});
 }

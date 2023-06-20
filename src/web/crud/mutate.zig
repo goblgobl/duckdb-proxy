@@ -155,7 +155,15 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 fn translateRow(aa: Allocator, row: zuckdb.Row, column_types: []zuckdb.ParameterType, into: []typed.Value) !void {
 	for (column_types, 0..) |ctype, i| {
 		const typed_value = switch (ctype) {
-			.varchar, .blob => if (row.get([]u8, i)) |v| typed.new(v) else NULL_VALUE,
+			.varchar => if (row.get([]u8, i)) |v| typed.new(v) else NULL_VALUE,
+			.blob => blk: {
+				if (row.get([]u8, i)) |v| {
+					const encoder = std.base64.standard.Encoder;
+					var out = try aa.alloc(u8, encoder.calcSize(v.len));
+					break :blk typed.new(encoder.encode(out, v));
+				} else break :blk NULL_VALUE;
+			},
+			.bool => if (row.get(bool, i)) |v| typed.new(v) else NULL_VALUE,
 			.i8 => if (row.get(i8, i)) |v| typed.new(v) else NULL_VALUE,
 			.i16 => if (row.get(i16, i)) |v| typed.new(v) else NULL_VALUE,
 			.i32 => if (row.get(i32, i)) |v| typed.new(v) else NULL_VALUE,
@@ -167,7 +175,6 @@ fn translateRow(aa: Allocator, row: zuckdb.Row, column_types: []zuckdb.Parameter
 			.u64 => if (row.get(u64, i)) |v| typed.new(v) else NULL_VALUE,
 			.f32 => if (row.get(f32, i)) |v| typed.new(v) else NULL_VALUE,
 			.f64, .decimal => if (row.get(f64, i)) |v| typed.new(v) else NULL_VALUE,
-			.bool => if (row.get(bool, i)) |v| typed.new(v) else NULL_VALUE,
 			.uuid => if (row.get(zuckdb.UUID, i)) |v| typed.new(try aa.dupe(u8, &v)) else NULL_VALUE,
 			.date => blk: {
 				if (row.get(zuckdb.Date, i)) |date| {
@@ -266,6 +273,15 @@ test "mutate: invalid parameter value" {
 	try tc.expectInvalid(.{.code = validate.codes.TYPE_BOOL, .field = "params.0"});
 }
 
+test "mutate: invalid base64 for blog" {
+	var tc = t.context(.{});
+	defer tc.deinit();
+
+	tc.web.json(.{.sql = "select $1::blob", .params = .{"not a blob"}});
+	try t.expectError(error.Validation, handler(tc.env, tc.web.req, tc.web.res));
+	try tc.expectInvalid(.{.code = validate.codes.STRING_BASE64, .field = "params.0"});
+}
+
 test "mutate: no changes" {
 	var tc = t.context(.{});
 	defer tc.deinit();
@@ -324,7 +340,7 @@ test "mutate: every type" {
 			255, 65535, 4294967295, 18446744073709551615,
 			-1.75, 3.1400009, 901.22,
 			true, "2023-06-20", "13:35:29.332", 1687246572940921,
-			"blob-todo", "over 9000", "804b6dd4-d23b-4ea0-af2a-e3bf39bca496"
+			"dGhpcyBpcyBhIGJsb2I=", "over 9000", "804b6dd4-d23b-4ea0-af2a-e3bf39bca496"
 		}
 	});
 	handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
@@ -375,7 +391,7 @@ test "mutate: every type" {
 			"13:35:29",
 			1687246572940921,
 
-			"blob-todo",
+			"dGhpcyBpcyBhIGJsb2I=",
 			"over 9000",
 			"804b6dd4-d23b-4ea0-af2a-e3bf39bca496"}
 		}
