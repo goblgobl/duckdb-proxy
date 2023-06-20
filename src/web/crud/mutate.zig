@@ -10,7 +10,7 @@ const Env = dproxy.Env;
 const Parameter = dproxy.Parameter;
 const Allocator = std.mem.Allocator;
 
-const NULL_VALUE = typed.new(null);
+const NULL_VALUE = typed.Value{.null = {}};
 
 var mutate_validator: *validate.Object(void) = undefined;
 pub fn init(builder: *validate.Builder(void)) !void {
@@ -154,51 +154,50 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 
 fn translateRow(aa: Allocator, row: zuckdb.Row, column_types: []zuckdb.ParameterType, into: []typed.Value) !void {
 	for (column_types, 0..) |ctype, i| {
-		const typed_value = switch (ctype) {
-			.varchar => if (row.get([]u8, i)) |v| typed.new(v) else NULL_VALUE,
+		into[i] = switch (ctype) {
+			.varchar => if (row.get([]u8, i)) |v| .{.string = v} else NULL_VALUE,
 			.blob => blk: {
 				if (row.get([]u8, i)) |v| {
 					const encoder = std.base64.standard.Encoder;
 					var out = try aa.alloc(u8, encoder.calcSize(v.len));
-					break :blk typed.new(encoder.encode(out, v));
+					break :blk .{.string = encoder.encode(out, v)};
 				} else break :blk NULL_VALUE;
 			},
-			.bool => if (row.get(bool, i)) |v| typed.new(v) else NULL_VALUE,
-			.i8 => if (row.get(i8, i)) |v| typed.new(v) else NULL_VALUE,
-			.i16 => if (row.get(i16, i)) |v| typed.new(v) else NULL_VALUE,
-			.i32 => if (row.get(i32, i)) |v| typed.new(v) else NULL_VALUE,
-			.i64 => if (row.get(i64, i)) |v| typed.new(v) else NULL_VALUE,
-			.i128 => if (row.get(i128, i)) |v| typed.new(v) else NULL_VALUE,
-			.u8 => if (row.get(u8, i)) |v| typed.new(v) else NULL_VALUE,
-			.u16 => if (row.get(u16, i)) |v| typed.new(v) else NULL_VALUE,
-			.u32 => if (row.get(u32, i)) |v| typed.new(v) else NULL_VALUE,
-			.u64 => if (row.get(u64, i)) |v| typed.new(v) else NULL_VALUE,
-			.f32 => if (row.get(f32, i)) |v| typed.new(v) else NULL_VALUE,
-			.f64, .decimal => if (row.get(f64, i)) |v| typed.new(v) else NULL_VALUE,
-			.uuid => if (row.get(zuckdb.UUID, i)) |v| typed.new(try aa.dupe(u8, &v)) else NULL_VALUE,
+			.bool => if (row.get(bool, i)) |v| .{.bool = v} else NULL_VALUE,
+			.i8 => if (row.get(i8, i)) |v| .{.i8 = v} else NULL_VALUE,
+			.i16 => if (row.get(i16, i)) |v| .{.i16 = v} else NULL_VALUE,
+			.i32 => if (row.get(i32, i)) |v| .{.i32 = v} else NULL_VALUE,
+			.i64 => if (row.get(i64, i)) |v| .{.i64 = v} else NULL_VALUE,
+			.i128 => if (row.get(i128, i)) |v| .{.i128 = v} else NULL_VALUE,
+			.u8 => if (row.get(u8, i)) |v| .{.u8 = v} else NULL_VALUE,
+			.u16 => if (row.get(u16, i)) |v| .{.u16 = v} else NULL_VALUE,
+			.u32 => if (row.get(u32, i)) |v| .{.u32 = v} else NULL_VALUE,
+			.u64 => if (row.get(u64, i)) |v| .{.u64 = v} else NULL_VALUE,
+			.f32 => if (row.get(f32, i)) |v| .{.f32 = v} else NULL_VALUE,
+			.f64, .decimal => if (row.get(f64, i)) |v| .{.f64 = v} else NULL_VALUE,
+			.uuid => if (row.get(zuckdb.UUID, i)) |v| .{.string = try aa.dupe(u8, &v)} else NULL_VALUE,
 			.date => blk: {
 				if (row.get(zuckdb.Date, i)) |date| {
-					break :blk typed.new(typed.Date{
+					break :blk .{.date = .{
 						.year = @intCast(i16, date.year),
 						.month = @intCast(u8, date.month),
 						.day = @intCast(u8, date.day),
-					});
+					}};
 				} else break :blk NULL_VALUE;
 			},
 			.time => blk: {
 				if (row.get(zuckdb.Time, i)) |time| {
-					break :blk typed.new(typed.Time{
+					break :blk .{.time = .{
 						.hour = @intCast(u8, time.hour),
 						.min =  @intCast(u8, time.min),
 						.sec =  @intCast(u8, time.sec),
-					});
+					}};
 				} else break :blk NULL_VALUE;
 			},
-			.timestamp => if (row.get(i64, i)) |v| typed.new(typed.Timestamp{.micros = v}) else NULL_VALUE,
-			.@"enum" => if (try row.getEnum(i)) |v| typed.new(v) else NULL_VALUE,
-			else => error.UnsupportedValueType,
+			.timestamp => if (row.get(i64, i)) |v| .{.timestamp = .{.micros = v}} else NULL_VALUE,
+			.@"enum" => if (try row.getEnum(i)) |v| .{.string = v} else NULL_VALUE,
+			else => .{.string = try std.fmt.allocPrint(aa, "Cannot serialize: {any}", .{ctype})},
 		};
-		into[i] = typed_value catch (typed.new(try std.fmt.allocPrint(aa, "Cannot serialize: {any}", .{ctype})) catch unreachable);
 	}
 }
 
