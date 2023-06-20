@@ -195,6 +195,7 @@ fn translateRow(aa: Allocator, row: zuckdb.Row, column_types: []zuckdb.Parameter
 				} else break :blk NULL_VALUE;
 			},
 			.timestamp => if (row.get(i64, i)) |v| typed.new(typed.Timestamp{.micros = v}) else NULL_VALUE,
+			.@"enum" => if (try row.getEnum(i)) |v| typed.new(v) else NULL_VALUE,
 			else => error.UnsupportedValueType,
 		};
 		into[i] = typed_value catch (typed.new(try std.fmt.allocPrint(aa, "Cannot serialize: {any}", .{ctype})) catch unreachable);
@@ -328,10 +329,13 @@ test "mutate: every type" {
 			\\   col_timestamp,
 			\\   col_blob,
 			\\   col_varchar,
-			\\   col_uuid
+			\\   col_uuid,
+			\\   col_json,
+			\\   col_enum
 			\\ ) values (
 			\\   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-			\\   $11, $12, $13, $14, $15, $16, $17, $18, $19
+			\\   $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+			\\   $21
 			\\ )
 			\\ returning *
 		,
@@ -340,7 +344,8 @@ test "mutate: every type" {
 			255, 65535, 4294967295, 18446744073709551615,
 			-1.75, 3.1400009, 901.22,
 			true, "2023-06-20", "13:35:29.332", 1687246572940921,
-			"dGhpcyBpcyBhIGJsb2I=", "over 9000", "804b6dd4-d23b-4ea0-af2a-e3bf39bca496"
+			"dGhpcyBpcyBhIGJsb2I=", "over 9000", "804b6dd4-d23b-4ea0-af2a-e3bf39bca496",
+			"{\"over\":9000}", "type_b"
 		}
 	});
 	handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
@@ -368,7 +373,9 @@ test "mutate: every type" {
 
 			"col_blob",
 			"col_varchar",
-			"col_uuid"
+			"col_uuid",
+			"col_json",
+			"col_enum"
 		},
 		.rows = .{.{
 			-32,
@@ -393,8 +400,10 @@ test "mutate: every type" {
 
 			"dGhpcyBpcyBhIGJsb2I=",
 			"over 9000",
-			"804b6dd4-d23b-4ea0-af2a-e3bf39bca496"}
-		}
+			"804b6dd4-d23b-4ea0-af2a-e3bf39bca496",
+			"{\"over\":9000}",
+			"type_b"
+		}}
 	});
 }
 

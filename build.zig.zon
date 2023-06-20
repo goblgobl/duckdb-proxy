@@ -3,8 +3,8 @@
 	.version = "0.0.0",
 	.dependencies = .{
 		.zuckdb = .{
-			.url = "https://github.com/karlseguin/zuckdb.zig/archive/1797386dc2935602bd23410054a50fafa2116c2b.tar.gz",
-			.hash = "1220303db27c9689c28bb4f625efdc66dd672bbbffd75cea8df818bfcc595d700cbf"
+			.url = "https://github.com/karlseguin/zuckdb.zig/archive/9cd116b8b18e0cfe393070c1250992200af6d2c7.tar.gz",
+			.hash = "122037748c21d9ca150a3ae77bcc56148cbed6b60c42acd9581e9ab6b2490a761bbe"
 		},
 		.httpz = .{
 			.url = "https://github.com/karlseguin/http.zig/archive/14bf861a8c447d45f1b6c76d9b7411b7699ba1ae.tar.gz",

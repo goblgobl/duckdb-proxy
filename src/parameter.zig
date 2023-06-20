@@ -145,6 +145,12 @@ pub const Parameter = struct {
 					else => return stmt.bindDynamic(index, null),
 				}
 			},
+			.@"enum" => {
+				switch (try string_validator.validateValue(value, validator)) {
+					.string => |v| return stmt.bindDynamic(index, v),
+					else => return stmt.bindDynamic(index, null),
+				}
+			},
 			else => |tpe| {
 				const type_name = @tagName(tpe);
 				return validator.add(.{

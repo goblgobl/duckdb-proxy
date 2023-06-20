@@ -47,6 +47,14 @@ pub fn setup() void {
 	@import("init.zig").init(&builder) catch unreachable;
 
 	{
+		std.fs.cwd().deleteFile("tests/db.duckdb") catch |err| switch (err) {
+			error.FileNotFound => {},
+			else => {
+				std.debug.print("Failed to delete 'tests/db.duckdb' - {any}\n", .{err});
+				unreachable;
+			}
+		};
+
 		// create some dummy data
 		const db = zuckdb.DB.init(allocator, "tests/db.duckdb", .{}).ok;
 		defer db.deinit();
@@ -54,7 +62,7 @@ pub fn setup() void {
 		const conn = db.conn() catch unreachable;
 		defer conn.deinit();
 
-		conn.execZ("drop table if exists everythings") catch unreachable;
+		conn.execZ("create type everything_type as enum ('type_a', 'type_b')") catch unreachable;
 
 		conn.execZ(
 			\\ create table everythings (
@@ -76,7 +84,9 @@ pub fn setup() void {
 			\\   col_timestamp timestamp,
 			\\   col_blob blob,
 			\\   col_varchar varchar,
-			\\   col_uuid uuid
+			\\   col_uuid uuid,
+			\\   col_json json,
+			\\   col_enum everything_type
 			\\ )
 		) catch unreachable;
 	}
