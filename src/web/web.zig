@@ -10,6 +10,7 @@ pub const dproxy = @import("../dproxy.zig");
 
 const App = dproxy.App;
 const Env = dproxy.Env;
+const Allocator = std.mem.Allocator;
 
 var _request_id: u32 = 0;
 
@@ -23,7 +24,7 @@ pub fn start(app: *App) !void {
 		_request_id = r.random().uintAtMost(u32, 10_000_000);
 	}
 
-	var server = try httpz.ServerCtx(*App, *Env).init(app.allocator, .{}, app);
+	var server = try httpz.ServerCtx(*App, *Env).init(app.allocator, app.config.http, app);
 	server.dispatcher(dispatcher);
 	server.notFound(notFound);
 	server.errorHandler(errorHandler);
@@ -31,16 +32,24 @@ pub fn start(app: *App) !void {
 	var router = server.router();
 	router.post("/api/1/select", crud.select);
 	router.post("/api/1/mutate", crud.mutate);
+
+	const http_address = try std.fmt.allocPrint(app.allocator, "http://{s}:{d}", .{server.config.address.?, server.config.port.?});
+	logz.info().ctx("http.listener").string("address", http_address).log();
+	app.allocator.free(http_address);
+
 	try server.listen();
 }
 
 fn dispatcher(app: *App, action: httpz.Action(*Env), req: *httpz.Request, res: *httpz.Response) !void {
+	const start_time = std.time.microTimestamp();
+
 	const validator = try app.validators.acquire({});
 	defer app.validators.release(validator);
 
-	const encoded_request_id = encodeRequestId(app.config.instance_id, @atomicRmw(u32, &_request_id, .Add, 1, .SeqCst));
+	const encoded_request_id = try encodeRequestId(res.arena, app.config.instance_id, @atomicRmw(u32, &_request_id, .Add, 1, .SeqCst));
+	res.header("request-id", encoded_request_id);
 
-	var logger = logz.logger().string("$rid", &encoded_request_id).multiuse();
+	var logger = logz.logger().string("$rid", encoded_request_id).multiuse();
 	defer logger.release();
 
 	var env = Env{
@@ -52,13 +61,18 @@ fn dispatcher(app: *App, action: httpz.Action(*Env), req: *httpz.Request, res: *
 	action(&env, req, res) catch |err| switch (err) {
 		error.Validation => {
 			res.status = 400;
-			return res.json(.{
+			const code = dproxy.codes.VALIDATION_ERROR;
+			try res.json(.{
 				.err = "validation error",
-				.code = dproxy.codes.VALIDATION_ERROR,
+				.code = code,
 				.validation = validator.errors(),
 			}, .{.emit_null_optional_fields = false});
+			_ = logger.int("code", code);
 		},
-		error.InvalidJson => return errors.InvalidJson.write(res),
+		error.InvalidJson => {
+			_ = logger.int("code", errors.InvalidJson.code);
+			errors.InvalidJson.write(res);
+		},
 		else => {
 			const error_id = try uuid.allocHex(res.arena);
 			logger.level(.Error).
@@ -69,13 +83,25 @@ fn dispatcher(app: *App, action: httpz.Action(*Env), req: *httpz.Request, res: *
 				log();
 
 			res.status = 500;
-			return res.json(.{
+			try res.json(.{
 				.err = "internal server error",
 				.code = dproxy.codes.INTERNAL_SERVER_ERROR_CAUGHT,
 				.error_id = error_id,
 			}, .{});
 		}
 	};
+
+	if (app.log_http) logRequest(req, res, start_time, logger);
+}
+
+fn logRequest(req: *httpz.Request, res: *httpz.Response, start_time: i64, logger: logz.Logger) void {
+	logger.
+		stringSafe("@l", "REQ").
+		int("s", res.status).
+		stringSafe("m", @tagName(req.method)).
+		stringSafe("p", req.url.path).
+		int("us", std.time.microTimestamp() - start_time).
+		log();
 }
 
 pub fn validateBody(env: *Env, req: *httpz.Request, v: *validate.Object(void)) !typed.Map {
@@ -129,11 +155,11 @@ fn errorHandler(_: *const App, req: *httpz.Request, res: *httpz.Response, err: a
 	errors.ServerError.write(res);
 }
 
-fn encodeRequestId(instance_id: u8, request_id: u32) [8]u8 {
+fn encodeRequestId(allocator: Allocator, instance_id: u8, request_id: u32) ![]u8 {
 	const REQUEST_ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 	const encoded_requested_id = std.mem.asBytes(&request_id);
 
-	var encoded: [8]u8 = undefined;
+	var encoded = try allocator.alloc(u8, 8);
 	encoded[7] = REQUEST_ID_ALPHABET[instance_id&0x1F];
 	encoded[6] = REQUEST_ID_ALPHABET[(instance_id>>5|(encoded_requested_id[0]<<3))&0x1F];
 	encoded[5] = REQUEST_ID_ALPHABET[(encoded_requested_id[0]>>2)&0x1F];

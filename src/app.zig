@@ -9,6 +9,7 @@ const Allocator = std.mem.Allocator;
 
 pub const App = struct {
 	config: Config,
+	log_http: bool,
 	dbs: zuckdb.Pool,
 	allocator: Allocator,
 	validators: validate.Pool(void),
@@ -31,6 +32,7 @@ pub const App = struct {
 			.dbs = dbs,
 			.config = config,
 			.allocator = allocator,
+			.log_http = config.log_http,
 			.validators = try validate.Pool(void).init(allocator, .{}),
 		};
 	}
