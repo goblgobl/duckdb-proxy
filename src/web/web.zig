@@ -174,10 +174,13 @@ fn encodeRequestId(allocator: Allocator, instance_id: u8, request_id: u32) ![]u8
 const t = dproxy.testing;
 
 test "dispatcher: encodeRequestId" {
-	try t.expectString("AAAAAAYA", &encodeRequestId(0, 3));
-	try t.expectString("AAAAABAA", &encodeRequestId(0, 4));
-	try t.expectString("AAAAAAYC", &encodeRequestId(2, 3));
-	try t.expectString("AAAAABAC", &encodeRequestId(2, 4));
+	var tc = t.context(.{});
+	defer tc.deinit();
+
+	try t.expectString("AAAAAAYA", try encodeRequestId(tc.arena, 0, 3));
+	try t.expectString("AAAAABAA", try encodeRequestId(tc.arena, 0, 4));
+	try t.expectString("AAAAAAYC", try encodeRequestId(tc.arena, 2, 3));
+	try t.expectString("AAAAABAC", try encodeRequestId(tc.arena, 2, 4));
 }
 
 test "web.dispatch: invalid json" {
