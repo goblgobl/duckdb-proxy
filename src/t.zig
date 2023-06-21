@@ -88,7 +88,8 @@ pub fn setup() void {
 			\\   col_json json,
 			\\   col_enum everything_type,
 			\\   col_list_integer integer[],
-			\\   col_list_varchar varchar[]
+			\\   col_list_varchar varchar[],
+			\\   col_interval interval
 			\\ )
 		) catch unreachable;
 	}
@@ -105,8 +106,10 @@ pub fn context(_: Context.Config) *Context {
 	var aa = arena.allocator();
 	const app = aa.create(dproxy.App) catch unreachable;
 	app.* = dproxy.App.init(allocator, .{
-		.db_pool_size = 2,
-		.db_path = "tests/db.duckdb",
+		.db = .{
+			.pool_size = 2,
+			.path = "tests/db.duckdb",
+		},
 	}) catch unreachable;
 
 	const env = aa.create(dproxy.Env) catch unreachable;

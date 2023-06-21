@@ -218,6 +218,13 @@ fn translateScalar(aa: Allocator, src: anytype, parameter_type: zuckdb.Parameter
 		},
 		.timestamp => if (src.get(i64, i)) |v| return .{.timestamp = .{.micros = v}},
 		.@"enum" => if (try src.getEnum(i)) |v| return .{.string = v},
+		.interval => {
+			if (src.get(zuckdb.Interval, i)) |interval| {
+				var map = typed.Map.init(aa);
+				try map.putAll(.{.months = interval.months, .days = interval.days, .micros = interval.micros});
+				return .{.map = map};
+			}
+		},
 		else => return .{.string = try std.fmt.allocPrint(aa, "Cannot serialize: {any}", .{parameter_type})},
 	}
 
@@ -355,11 +362,13 @@ test "mutate: every type" {
 			\\   col_json,
 			\\   col_enum,
 			\\   col_list_integer,
-			\\   col_list_varchar
+			\\   col_list_varchar,
+			\\   col_interval
 			\\ ) values (
 			\\   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
 			\\   $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-			\\   $21, [1, null, 2], ['over', '9000', '!', '!1']
+			\\   $21, [1, null, 2], ['over', '9000', '!', '!1'],
+			\\   $22,
 			\\ )
 			\\ returning *
 		,
@@ -369,7 +378,7 @@ test "mutate: every type" {
 			-1.75, 3.1400009, 901.22,
 			true, "2023-06-20", "13:35:29.332", 1687246572940921,
 			"dGhpcyBpcyBhIGJsb2I=", "over 9000", "804b6dd4-d23b-4ea0-af2a-e3bf39bca496",
-			"{\"over\":9000}", "type_b"
+			"{\"over\":9000}", "type_b", "45 days"
 		}
 	});
 	handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
@@ -401,7 +410,8 @@ test "mutate: every type" {
 			"col_json",
 			"col_enum",
 			"col_list_integer",
-			"col_list_varchar"
+			"col_list_varchar",
+			"col_interval"
 		},
 		.rows = .{.{
 			-32,
@@ -432,7 +442,29 @@ test "mutate: every type" {
 
 			&.{1, null, 2},
 			&.{"over", "9000", "!", "!1"},
+
+			.{.months = 0, .days = 45, .micros = 0},
 		}}
+	});
+}
+
+// above tested interval as a string, but we also accept it as an object
+test "mutate: interval as object" {
+	var tc = t.context(.{});
+	defer tc.deinit();
+
+	tc.web.json(.{
+		.sql = "insert into everythings (col_interval) values ($1), ($2), ($3) returning col_interval",
+		.params = .{.{.months = 0}, .{.months = 33, .days = 91, .micros = 3232958}, .{.days = 5}},
+	});
+	handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
+	try tc.web.expectJson(.{
+		.cols = .{"col_interval"},
+		.rows = .{
+			.{.{.months = 0, .days = 0, .micros = 0}},
+			.{.{.months = 33, .days = 91, .micros = 3232958}},
+			.{.{.months = 0, .days = 5, .micros = 0}},
+		}
 	});
 }
 

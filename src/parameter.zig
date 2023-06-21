@@ -151,6 +151,26 @@ pub const Parameter = struct {
 					else => return stmt.bindDynamic(index, null),
 				}
 			},
+			.interval => {
+				switch (value) {
+					.string => {  // can either be a string, e.g. "4 hours"
+						switch (try string_validator.validateValue(value, validator)) {
+							.string => |v| return stmt.bindDynamic(index, v),
+							else => return stmt.bindDynamic(index, null),
+						}
+					},
+					else => { // or an object {months: X, days: Y, micros: Z}
+						switch (try interval_validator.validateValue(value, validator)) {
+							.map => |v| return stmt.bindDynamic(index, zuckdb.Interval{
+								.months = v.get(i32, "months") orelse unreachable,
+								.days = v.get(i32, "days") orelse unreachable,
+								.micros = v.get(i64, "micros") orelse unreachable,
+							}),
+							else => return stmt.bindDynamic(index, null),
+						}
+					}
+				}
+			},
 			else => |tpe| {
 				const type_name = @tagName(tpe);
 				return validator.add(.{
@@ -260,6 +280,7 @@ var date_validator: *validate.Date(void) = undefined;
 var time_validator: *validate.Time(void) = undefined;
 var string_validator: *validate.String(void) = undefined;
 var blob_validator: *validate.String(void) = undefined;
+var interval_validator:  *validate.Object(void) = undefined;
 
 // Called in init.zig
 pub fn init(builder: *validate.Builder(void)) !void {
@@ -285,4 +306,9 @@ pub fn init(builder: *validate.Builder(void)) !void {
 	time_validator = builder.time(.{.parse = true});
 	string_validator = builder.string(.{});
 	blob_validator = builder.string(.{.decode = .base64});
+	interval_validator = builder.object(&.{
+		builder.field("months", builder.int(i32, .{.default = 0})),
+		builder.field("days", builder.int(i32, .{.default = 0})),
+		builder.field("micros", builder.int(i64, .{.default = 0})),
+	}, .{});
 }
