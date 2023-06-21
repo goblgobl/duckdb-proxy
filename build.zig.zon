@@ -3,24 +3,28 @@
 	.version = "0.0.0",
 	.dependencies = .{
 		.zuckdb = .{
-			.url = "https://github.com/karlseguin/zuckdb.zig/archive/20e8c1380cdb879d682f27f0e4b448dbb2e9a2e8.tar.gz",
-			.hash = "1220b49304e1cb26b99d0afaac69c79f10cf62b141ed83b7af230439210cbbfbfbd7"
+			.url = "https://github.com/karlseguin/zuckdb.zig/archive/aec389dfcf3a78746e1d5215a701865b70f24b26.tar.gz",
+			.hash = "12201e4c4f5dce94b42b0189faca488a0d9238820fa46375750ac342446dfc3b08da"
 		},
 		.httpz = .{
-			.url = "https://github.com/karlseguin/http.zig/archive/14bf861a8c447d45f1b6c76d9b7411b7699ba1ae.tar.gz",
-			.hash = "1220e2b9f62b612273e4cced2d63eeef62a3d3949ce583d87f6a834648454bc038b1"
+			.url = "https://github.com/karlseguin/http.zig/archive/77486d86482096b89f05c3025a9172007dc78abd.tar.gz",
+			.hash = "1220fa60b2794f698b25e6a95952e051cc157f629ef122d653dc3dad2851096b50f8"
 		},
 		.logz = .{
 			.url = "https://github.com/karlseguin/log.zig/archive/54f7ce49437f1163e85c90a168b974ea18e03abd.tar.gz",
 			.hash = "12207768b4f794c2532bf10ac97ca4243b998bf7d8fa0f6cae442b2e1ca984ff49a5"
 		},
 		.typed = .{
-			.url = "https://github.com/karlseguin/typed.zig/archive/e7385018b6b42274ca1080f6f54821aa8d0e5e82.tar.gz",
-			.hash = "122052061df9b0c31b2f75033b5c92085e0d5115ab92bc2c4e36a301e07e733a4120"
+			.url = "https://github.com/karlseguin/typed.zig/archive/e563f5a2eada926d7fe8d687f620da30de413652.tar.gz",
+			.hash = "1220f3e29533195dcb4f57676d991dd05e7f46ac59caf55854bb7797c7f40a619ab2"
 		},
 		.validate = .{
-			.url = "https://github.com/karlseguin/validate.zig/archive/797dbbc2cda9046c38e76abc27bdfa5af04af480.tar.gz",
-			.hash = "12200ba52510f0b145d37fb759598094d582ed36c50da114f35946628cacc5351ece"
+			.url = "https://github.com/karlseguin/validate.zig/archive/9a7e0b8acb0ccbeca681bdf9fd4a060a0cf295bb.tar.gz",
+			.hash = "12209cf99aa897678277d57f2d885b65899515d6a8186c749425e2898435f1efe7dd"
+		},
+		.clap = .{
+			.url = "https://github.com/Hejsil/zig-clap/archive/a1b7a7301b0006bb4c8daaaf5ade8a6df8ec13ae.tar.gz",
+			.hash = "12205aeff59f41f96033d280471730c171c9a825d8758743249bed834e1590f593e3"
 		},
 	},
 }

@@ -44,7 +44,7 @@ pub fn setup() void {
 	restoreLogs();
 
 	var builder = validate.Builder(void).init(leaking_allocator) catch unreachable;
-	@import("init.zig").init(&builder) catch unreachable;
+	@import("init.zig").init(&builder, .{}) catch unreachable;
 
 	{
 		std.fs.cwd().deleteFile("tests/db.duckdb") catch |err| switch (err) {

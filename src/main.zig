@@ -23,10 +23,15 @@ pub fn main() !void {
 			.readonly = true,
 			.path = "/tmp/pondz/default/main.duckdb",
 		},
-		.max_parameters = 2,
+		.http = .{
+			.cors = .{
+				.origin = "http://localhost:5300",
+				.headers = "Content-Type",
+			}
+		}
 	});
 	var validation_builder = try validate.Builder(void).init(allocator);
-	try init.init(&validation_builder, &app);
+	try init.init(&validation_builder, app.config);
 
 	try web.start(&app);
 }
