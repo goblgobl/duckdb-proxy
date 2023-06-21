@@ -32,6 +32,10 @@ pub fn start(app: *App) !void {
 	var router = server.router();
 	router.post("/api/1/exec", sql.exec);
 
+	// Allow this to be called with an :id parameter, the only purpose of this is
+	// for improving the URL attribute of the log message
+	router.post("/api/1/exec/:id", sql.exec);
+
 	const http_address = try std.fmt.allocPrint(app.allocator, "http://{s}:{d}", .{server.config.address.?, server.config.port.?});
 	logz.info().ctx("http.listener").string("address", http_address).log();
 	app.allocator.free(http_address);
