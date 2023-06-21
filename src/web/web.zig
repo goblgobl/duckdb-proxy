@@ -5,7 +5,7 @@ const httpz = @import("httpz");
 const typed = @import("typed");
 const validate = @import("validate");
 
-const crud = @import("crud/_crud.zig");
+const sql = @import("sql/_sql.zig");
 pub const dproxy = @import("../dproxy.zig");
 
 const App = dproxy.App;
@@ -30,8 +30,7 @@ pub fn start(app: *App) !void {
 	server.errorHandler(errorHandler);
 
 	var router = server.router();
-	router.post("/api/1/select", crud.select);
-	router.post("/api/1/mutate", crud.mutate);
+	router.post("/api/1/exec", sql.exec);
 
 	const http_address = try std.fmt.allocPrint(app.allocator, "http://{s}:{d}", .{server.config.address.?, server.config.port.?});
 	logz.info().ctx("http.listener").string("address", http_address).log();

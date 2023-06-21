@@ -3,23 +3,27 @@ const httpz = @import("httpz");
 const typed = @import("typed");
 const zuckdb = @import("zuckdb");
 const validate = @import("validate");
-const crud = @import("_crud.zig");
+const base = @import("_sql.zig");
 
-const dproxy = crud.dproxy;
+const dproxy = base.dproxy;
 const Env = dproxy.Env;
 const Parameter = dproxy.Parameter;
 const Allocator = std.mem.Allocator;
 
-var mutate_validator: *validate.Object(void) = undefined;
+var exec_validator: *validate.Object(void) = undefined;
 pub fn init(builder: *validate.Builder(void)) !void {
-	mutate_validator = builder.object(&.{
-		builder.field("sql", crud.sql_validator),
-		builder.field("params", crud.params_validator),
+	exec_validator = builder.object(&.{
+		builder.field("sql", builder.string(.{
+			.min = 1,
+			.max = 10_000,
+			.required = true,
+		})),
+		builder.field("params",  builder.array(null, .{})),
 	}, .{});
 }
 
 pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
-	const input = try crud.web.validateBody(env, req, mutate_validator);
+	const input = try base.web.validateBody(env, req, exec_validator);
 
 	const aa = res.arena;
 	const sql = input.get([]u8, "sql").?;
