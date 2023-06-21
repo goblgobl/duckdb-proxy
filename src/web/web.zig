@@ -72,13 +72,17 @@ fn dispatcher(app: *App, action: httpz.Action(*Env), req: *httpz.Request, res: *
 			_ = logger.int("code", errors.InvalidJson.code);
 			errors.InvalidJson.write(res);
 		},
+		error.ReadOnly => {
+			_ = logger.int("code", errors.ReadOnly.code);
+			errors.ReadOnly.write(res);
+		},
 		else => {
 			const error_id = try uuid.allocHex(res.arena);
 			logger.level(.Error).
 				ctx("http.err").
 				stringSafe("eid", error_id).
-				stringSafe("m", @tagName(req.method)).
-				stringSafe("p", req.url.path).
+				stringSafe("method", @tagName(req.method)).
+				string("path", req.url.path).
 				log();
 
 			res.status = 500;
@@ -90,17 +94,15 @@ fn dispatcher(app: *App, action: httpz.Action(*Env), req: *httpz.Request, res: *
 		}
 	};
 
-	if (app.log_http) logRequest(req, res, start_time, logger);
-}
-
-fn logRequest(req: *httpz.Request, res: *httpz.Response, start_time: i64, logger: logz.Logger) void {
-	logger.
-		stringSafe("@l", "REQ").
-		int("s", res.status).
-		stringSafe("m", @tagName(req.method)).
-		stringSafe("p", req.url.path).
-		int("us", std.time.microTimestamp() - start_time).
-		log();
+	if (app.log_http) {
+		logger.
+			stringSafe("@l", "REQ").
+			int("status", res.status).
+			stringSafe("method", @tagName(req.method)).
+			string("path", req.url.path).
+			int("us", std.time.microTimestamp() - start_time).
+			log();
+	}
 }
 
 pub fn validateBody(env: *Env, req: *httpz.Request, v: *validate.Object(void)) !typed.Map {
@@ -143,6 +145,7 @@ pub const errors = struct {
 	pub const ServerError = Error.init(500, dproxy.codes.INTERNAL_SERVER_ERROR_UNCAUGHT, "internal server error");
 	pub const NotFound = Error.init(404, dproxy.codes.NOT_FOUND, "not found");
 	pub const InvalidJson = Error.init(400, dproxy.codes.INVALID_JSON, "invalid JSON");
+	pub const ReadOnly = Error.init(409, dproxy.codes.READONLY, "database is configured for read-only operations");
 };
 
 fn notFound(_: *const App, _: *httpz.Request, res: *httpz.Response) !void {

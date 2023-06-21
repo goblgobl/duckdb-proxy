@@ -15,16 +15,21 @@ pub const App = struct {
 	validators: validate.Pool(void),
 
 	pub fn init(allocator: Allocator, config: Config) !App {
-		const db_path = config.db_path;
-		const db = switch (zuckdb.DB.init(allocator, db_path, .{})) {
+		const db_config = config.db;
+		const zuckdb_config = zuckdb.DB.Config{
+			.access_mode = if (db_config.readonly) .read_only else .read_write,
+			.enable_external_access = db_config.external_access,
+		};
+
+		const db = switch (zuckdb.DB.init(allocator, db_config.path, zuckdb_config)) {
 			.ok => |db| db,
-			.err => |err| return dproxy.duckdbError("db.init", err, logz.err().string("path", db_path)),
+			.err => |err| return dproxy.duckdbError("db.init", err, logz.err().string("path", db_config.path)),
 		};
 		errdefer db.deinit();
 
-		var dbs = switch (zuckdb.Pool.init(db, .{.size = config.db_pool_size})) {
+		var dbs = switch (zuckdb.Pool.init(db, .{.size = db_config.pool_size})) {
 			.ok => |pool| pool,
-			.err => |err| return dproxy.duckdbError("pool.init", err, logz.err().string("path", db_path)),
+			.err => |err| return dproxy.duckdbError("pool.init", err, logz.err().string("path", db_config.path)),
 		};
 		errdefer dbs.deinit();
 

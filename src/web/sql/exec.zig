@@ -62,7 +62,7 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 
 	var rows = switch (stmt.execute(null)) {
 		.ok => |rows| rows,
-		.err => |err| return dproxy.duckdbError("Mutate.run", err, env.logger),
+		.err => |err| return dproxy.duckdbError("exec.run", err, env.logger),
 	};
 	defer rows.deinit();
 

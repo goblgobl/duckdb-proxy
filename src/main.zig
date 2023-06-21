@@ -19,7 +19,10 @@ pub fn main() !void {
 		log();
 
 	var app = try dproxy.App.init(allocator, .{
-		.db_path = "/tmp/pondz/default/main.duckdb",
+		.db = .{
+			.readonly = true,
+			.path = "tests/db.duckdb",
+		},
 	});
 	var validation_builder = try validate.Builder(void).init(allocator);
 	try init.init(&validation_builder);
