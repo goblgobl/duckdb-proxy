@@ -15,13 +15,18 @@ pub fn build(b: *std.Build) !void {
 	const dep_opts = .{.target = target,.optimize = optimize};
 
 	const zuckdb_package = b.dependency("zuckdb", dep_opts);
-	try modules.put("zuckdb", zuckdb_package.module("zuckdb"));
 
 	try modules.put("logz", b.dependency("logz", dep_opts).module("logz"));
 	try modules.put("httpz", b.dependency("httpz", dep_opts).module("httpz"));
 
 	try modules.put("typed", b.dependency("typed", dep_opts).module("typed"));
 	try modules.put("validate", b.dependency("validate", dep_opts).module("validate"));
+
+	try modules.put("zuckdb", zuckdb_package.module("zuckdb"));
+	// try modules.put("zuckdb", b.addModule("zuckdb", .{
+	// 	.source_file = .{.path = "../zuckdb.zig/src/zuckdb.zig"},
+	// 	.dependencies = &.{.{.name = "typed", .module = modules.get("typed").?}},
+	// }));
 
 	// local libraries
 	try modules.put("uuid", b.addModule("uuid", .{.source_file = .{.path = "lib/uuid/uuid.zig"}}));

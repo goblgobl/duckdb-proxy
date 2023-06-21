@@ -10,8 +10,6 @@ const Env = dproxy.Env;
 const Parameter = dproxy.Parameter;
 const Allocator = std.mem.Allocator;
 
-const NULL_VALUE = typed.Value{.null = {}};
-
 var mutate_validator: *validate.Object(void) = undefined;
 pub fn init(builder: *validate.Builder(void)) !void {
 	mutate_validator = builder.object(&.{
@@ -125,13 +123,13 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 
 	var row_count: usize = 0;
 	if (try rows.next()) |row| {
-		try translateRow(aa, row, column_types, typed_row);
+		try translateRow(aa, &row, column_types, typed_row);
 		try res.chunk(try serializeRow(typed_row, "\n  ", &buf, writer));
 		row_count = 1;
 	}
 	// convert each result row into a []typed.Value (which we can JSON serialize)
 	while (try rows.next()) |row| {
-		try translateRow(aa, row, column_types, typed_row);
+		try translateRow(aa, &row, column_types, typed_row);
 		try res.chunk(try serializeRow(typed_row, ",\n  ", &buf, writer));
 		row_count += 1;
 	}
@@ -152,53 +150,74 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 	}
 }
 
-fn translateRow(aa: Allocator, row: zuckdb.Row, column_types: []zuckdb.ParameterType, into: []typed.Value) !void {
-	for (column_types, 0..) |ctype, i| {
-		into[i] = switch (ctype) {
-			.varchar => if (row.get([]u8, i)) |v| .{.string = v} else NULL_VALUE,
-			.blob => blk: {
-				if (row.get([]u8, i)) |v| {
-					const encoder = std.base64.standard.Encoder;
-					var out = try aa.alloc(u8, encoder.calcSize(v.len));
-					break :blk .{.string = encoder.encode(out, v)};
-				} else break :blk NULL_VALUE;
+fn translateRow(aa: Allocator, row: *const zuckdb.Row, parameter_types: []zuckdb.ParameterType, into: []typed.Value) !void {
+	for (parameter_types, 0..) |parameter_type, i| {
+		into[i] = switch (parameter_type) {
+			.list => blk: {
+				var list = row.getList(i) orelse break :blk .{.null = {}};
+
+				var typed_list = typed.Array.init(aa);
+				try typed_list.ensureTotalCapacity(list.len);
+
+				for (0..list.len) |list_index| {
+					typed_list.appendAssumeCapacity(try translateScalar(aa, &list, list.type, list_index));
+				}
+
+				break :blk .{.array = typed_list};
 			},
-			.bool => if (row.get(bool, i)) |v| .{.bool = v} else NULL_VALUE,
-			.i8 => if (row.get(i8, i)) |v| .{.i8 = v} else NULL_VALUE,
-			.i16 => if (row.get(i16, i)) |v| .{.i16 = v} else NULL_VALUE,
-			.i32 => if (row.get(i32, i)) |v| .{.i32 = v} else NULL_VALUE,
-			.i64 => if (row.get(i64, i)) |v| .{.i64 = v} else NULL_VALUE,
-			.i128 => if (row.get(i128, i)) |v| .{.i128 = v} else NULL_VALUE,
-			.u8 => if (row.get(u8, i)) |v| .{.u8 = v} else NULL_VALUE,
-			.u16 => if (row.get(u16, i)) |v| .{.u16 = v} else NULL_VALUE,
-			.u32 => if (row.get(u32, i)) |v| .{.u32 = v} else NULL_VALUE,
-			.u64 => if (row.get(u64, i)) |v| .{.u64 = v} else NULL_VALUE,
-			.f32 => if (row.get(f32, i)) |v| .{.f32 = v} else NULL_VALUE,
-			.f64, .decimal => if (row.get(f64, i)) |v| .{.f64 = v} else NULL_VALUE,
-			.uuid => if (row.get(zuckdb.UUID, i)) |v| .{.string = try aa.dupe(u8, &v)} else NULL_VALUE,
-			.date => blk: {
-				if (row.get(zuckdb.Date, i)) |date| {
-					break :blk .{.date = .{
-						.year = @intCast(i16, date.year),
-						.month = @intCast(u8, date.month),
-						.day = @intCast(u8, date.day),
-					}};
-				} else break :blk NULL_VALUE;
-			},
-			.time => blk: {
-				if (row.get(zuckdb.Time, i)) |time| {
-					break :blk .{.time = .{
-						.hour = @intCast(u8, time.hour),
-						.min =  @intCast(u8, time.min),
-						.sec =  @intCast(u8, time.sec),
-					}};
-				} else break :blk NULL_VALUE;
-			},
-			.timestamp => if (row.get(i64, i)) |v| .{.timestamp = .{.micros = v}} else NULL_VALUE,
-			.@"enum" => if (try row.getEnum(i)) |v| .{.string = v} else NULL_VALUE,
-			else => .{.string = try std.fmt.allocPrint(aa, "Cannot serialize: {any}", .{ctype})},
+			else => try translateScalar(aa, row, parameter_type, i),
 		};
 	}
+}
+
+// src can either be a *zuckdb.Row or a *zuckdb.List
+fn translateScalar(aa: Allocator, src: anytype, parameter_type: zuckdb.ParameterType, i: usize) !typed.Value {
+	switch (parameter_type) {
+		.varchar => if (src.get([]u8, i)) |v| return .{.string = v},
+		.blob => {
+			if (src.get([]u8, i)) |v| {
+				const encoder = std.base64.standard.Encoder;
+				var out = try aa.alloc(u8, encoder.calcSize(v.len));
+				return .{.string = encoder.encode(out, v)};
+			}
+		},
+		.bool => if (src.get(bool, i)) |v| return .{.bool = v},
+		.i8 => if (src.get(i8, i)) |v| return .{.i8 = v},
+		.i16 => if (src.get(i16, i)) |v| return .{.i16 = v},
+		.i32 => if (src.get(i32, i)) |v| return .{.i32 = v},
+		.i64 => if (src.get(i64, i)) |v| return .{.i64 = v},
+		.i128 => if (src.get(i128, i)) |v| return .{.i128 = v},
+		.u8 => if (src.get(u8, i)) |v| return .{.u8 = v},
+		.u16 => if (src.get(u16, i)) |v| return .{.u16 = v},
+		.u32 => if (src.get(u32, i)) |v| return .{.u32 = v},
+		.u64 => if (src.get(u64, i)) |v| return .{.u64 = v},
+		.f32 => if (src.get(f32, i)) |v| return .{.f32 = v},
+		.f64, .decimal => if (src.get(f64, i)) |v| return .{.f64 = v},
+		.uuid => if (src.get(zuckdb.UUID, i)) |v| return .{.string = try aa.dupe(u8, &v)},
+		.date => {
+			if (src.get(zuckdb.Date, i)) |date| {
+				return .{.date = .{
+					.year = @intCast(i16, date.year),
+					.month = @intCast(u8, date.month),
+					.day = @intCast(u8, date.day),
+				}};
+			}
+		},
+		.time => {
+			if (src.get(zuckdb.Time, i)) |time| {
+				return .{.time = .{
+					.hour = @intCast(u8, time.hour),
+					.min =  @intCast(u8, time.min),
+					.sec =  @intCast(u8, time.sec),
+				}};
+			}
+		},
+		.timestamp => if (src.get(i64, i)) |v| return .{.timestamp = .{.micros = v}},
+		.@"enum" => if (try src.getEnum(i)) |v| return .{.string = v},
+		else => return .{.string = try std.fmt.allocPrint(aa, "Cannot serialize: {any}", .{parameter_type})},
+	}
+
+	return .{.null = {}};
 }
 
 fn serializeRow(row: []typed.Value, prefix: []const u8, buf: *std.ArrayList(u8), writer: anytype) ![]const u8 {
@@ -330,11 +349,13 @@ test "mutate: every type" {
 			\\   col_varchar,
 			\\   col_uuid,
 			\\   col_json,
-			\\   col_enum
+			\\   col_enum,
+			\\   col_list_integer,
+			\\   col_list_varchar
 			\\ ) values (
 			\\   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
 			\\   $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-			\\   $21
+			\\   $21, [1, null, 2], ['over', '9000', '!', '!1']
 			\\ )
 			\\ returning *
 		,
@@ -374,7 +395,9 @@ test "mutate: every type" {
 			"col_varchar",
 			"col_uuid",
 			"col_json",
-			"col_enum"
+			"col_enum",
+			"col_list_integer",
+			"col_list_varchar"
 		},
 		.rows = .{.{
 			-32,
@@ -401,7 +424,10 @@ test "mutate: every type" {
 			"over 9000",
 			"804b6dd4-d23b-4ea0-af2a-e3bf39bca496",
 			"{\"over\":9000}",
-			"type_b"
+			"type_b",
+
+			&.{1, null, 2},
+			&.{"over", "9000", "!", "!1"},
 		}}
 	});
 }

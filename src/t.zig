@@ -86,7 +86,9 @@ pub fn setup() void {
 			\\   col_varchar varchar,
 			\\   col_uuid uuid,
 			\\   col_json json,
-			\\   col_enum everything_type
+			\\   col_enum everything_type,
+			\\   col_list_integer integer[],
+			\\   col_list_varchar varchar[]
 			\\ )
 		) catch unreachable;
 	}
