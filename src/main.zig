@@ -21,11 +21,12 @@ pub fn main() !void {
 	var app = try dproxy.App.init(allocator, .{
 		.db = .{
 			.readonly = true,
-			.path = "tests/db.duckdb",
+			.path = "/tmp/pondz/default/main.duckdb",
 		},
+		.max_parameters = 2,
 	});
 	var validation_builder = try validate.Builder(void).init(allocator);
-	try init.init(&validation_builder);
+	try init.init(&validation_builder, &app);
 
 	try web.start(&app);
 }

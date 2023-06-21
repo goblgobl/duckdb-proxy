@@ -11,14 +11,14 @@ const Parameter = dproxy.Parameter;
 const Allocator = std.mem.Allocator;
 
 var exec_validator: *validate.Object(void) = undefined;
-pub fn init(builder: *validate.Builder(void)) !void {
+pub fn init(builder: *validate.Builder(void), max_parameters: ?u32) !void {
 	exec_validator = builder.object(&.{
 		builder.field("sql", builder.string(.{
 			.min = 1,
 			.max = 10_000,
 			.required = true,
 		})),
-		builder.field("params",  builder.array(null, .{})),
+		builder.field("params",  builder.array(null, .{.max = if (max_parameters) |max| @intCast(usize, max) else null})),
 	}, .{});
 }
 
@@ -122,36 +122,30 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 	var typed_row = try aa.alloc(typed.Value, column_types.len);
 
 	// write our preamble
-	try buf.appendSlice("{\n \"rows\":[");
+	try buf.appendSlice("{\n \"cols\": [");
+	for (0..column_types.len) |i| {
+		try std.json.encodeJsonString(std.mem.span(rows.columnName(i)), .{}, writer);
+		try buf.append(',');
+	}
+	// strip out the last comma
+	buf.shrinkRetainingCapacity(buf.items.len - 1);
+	try buf.appendSlice("],\n \"rows\": [");
 	try res.chunk(buf.items);
 
 	var row_count: usize = 0;
 	if (try rows.next()) |row| {
 		try translateRow(aa, &row, column_types, typed_row);
-		try res.chunk(try serializeRow(typed_row, "\n  ", &buf, writer));
+		try res.chunk(try serializeRow(typed_row, "\n   ", &buf, writer));
 		row_count = 1;
 	}
 	// convert each result row into a []typed.Value (which we can JSON serialize)
 	while (try rows.next()) |row| {
 		try translateRow(aa, &row, column_types, typed_row);
-		try res.chunk(try serializeRow(typed_row, ",\n  ", &buf, writer));
+		try res.chunk(try serializeRow(typed_row, ",\n   ", &buf, writer));
 		row_count += 1;
 	}
 
-	// Only now that we've iterated through our rows do we know anything for sure
-	if (row_count == 0) {
-		try res.chunk("\n ],\n \"cols\":[]}");
-	} else {
-		buf.clearRetainingCapacity();
-		try buf.appendSlice("\n ],\n \"cols\":[");
-		for (0..column_types.len) |i| {
-			try std.json.encodeJsonString(std.mem.span(rows.columnName(i)), .{}, writer);
-			try buf.append(',');
-		}
-		buf.shrinkRetainingCapacity(buf.items.len - 1);
-		try buf.appendSlice("]}");
-		try res.chunk(buf.items);
-	}
+	try res.chunk("\n ]\n}");
 }
 
 fn translateRow(aa: Allocator, row: *const zuckdb.Row, parameter_types: []zuckdb.ParameterType, into: []typed.Value) !void {

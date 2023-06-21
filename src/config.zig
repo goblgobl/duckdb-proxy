@@ -16,6 +16,8 @@ pub const Config = struct {
 		readonly: bool = false,
 	};
 
+	// Put a limit on the number of allowed parameters per query
+	max_parameters: ?u32 = null,
 
 	// For improving the uniqueness of request_id in a multi-server setup
 	// The instance_id is part of the request_id, thus N instances will generate
