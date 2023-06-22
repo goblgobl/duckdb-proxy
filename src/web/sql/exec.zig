@@ -62,7 +62,15 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 
 	var rows = switch (stmt.execute(null)) {
 		.ok => |rows| rows,
-		.err => |err| return dproxy.duckdbError("exec.run", err, env.logger),
+		.err => |err| {
+			defer err.deinit();
+			validator.addInvalidField(.{
+				.field = "sql",
+				.err = try aa.dupe(u8, err.desc),
+				.code = dproxy.val.INVALID_SQL,
+			});
+			return error.Validation;
+		}
 	};
 	defer rows.deinit();
 

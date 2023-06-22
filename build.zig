@@ -16,10 +16,9 @@ pub fn build(b: *std.Build) !void {
 
 	const zuckdb_package = b.dependency("zuckdb", dep_opts);
 
-	try modules.put("clap", b.dependency("clap", dep_opts).module("clap"));
 	try modules.put("logz", b.dependency("logz", dep_opts).module("logz"));
 	try modules.put("httpz", b.dependency("httpz", dep_opts).module("httpz"));
-	try modules.put("httpz", b.dependency("httpz", dep_opts).module("httpz"));
+	try modules.put("yazap", b.dependency("yazap", dep_opts).module("yazap"));
 
 	try modules.put("typed", b.dependency("typed", dep_opts).module("typed"));
 	try modules.put("validate", b.dependency("validate", dep_opts).module("validate"));

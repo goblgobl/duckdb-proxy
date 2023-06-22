@@ -2,4 +2,4 @@
 lib/duckdb
 zig-out/
 zig-cache/
-tests/db.duckdb
+db.duckdb*

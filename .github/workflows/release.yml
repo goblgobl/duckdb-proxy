@@ -1,0 +1,94 @@
+name: Release
+
+permissions:
+  contents: write
+
+env:
+  DUCKDB_VERSION: 0.8.1
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+
+      - name: Set env
+        run: |
+          echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> src/version.txt
+
+      - name: install zig
+        run: |
+          sudo snap install zig --classic --edge
+          echo "zig: $(zig version)" >> src/version.txt
+
+      - name: commit
+        run: |
+          echo "commit: $(git rev-parse HEAD | tr -d '\n')" >> src/version.txt
+
+      - name: fetch dependencies
+        run: |
+          git clone https://github.com/karlseguin/log.zig.git lib/log.zig
+          git clone https://github.com/karlseguin/http.zig.git lib/http.zig
+          git clone https://github.com/karlseguin/typed.zig.git lib/typed.zig
+          git clone https://github.com/karlseguin/validate.zig lib/validate.zig
+          git clone https://github.com/karlseguin/zuckdb.zig.git lib/zuckdb.zig
+          git clone https://github.com/PrajwalCH/yazap.git lib/yazap
+
+      - name: fetch duckdb
+        run: |
+          mkdir lib/duckdb
+          wget -q "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/libduckdb-linux-amd64.zip" -O lib/duckdb/libduckdb-linux-amd64.zip
+          wget -q "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/libduckdb-osx-universal.zip" -O lib/duckdb/libduckdb-osx-universal.zip
+          wget -q "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/libduckdb-windows-amd64.zip" -O lib/duckdb/libduckdb-windows-amd64.zip
+          cd lib/duckdb && unzip -n \*.zip
+
+      - name: build-x86_64-linux-gnu
+        run: |
+          make TARGET="x86_64-linux-gnu" ARGS="-mcpu x86_64_v2 -lc" release
+          mv duckdb-proxy release/duckdb-proxy-x86_64-linux-gnu/
+
+      - name: build-x86_64-windows
+        run: |
+          make TARGET="x86_64-windows" ARGS="-mcpu x86_64_v2 -lc" release
+          mv duckdb-proxy.exe release/duckdb-proxy-x86_64-windows/
+
+      - name: build-x86_64-macos
+        run: |
+          make TARGET="x86_64-macos" ARGS="-mcpu x86_64_v2" release
+          mv duckdb-proxy release/duckdb-proxy-x86_64-macos/
+
+      - name: build-aarch64-macos
+        run: |
+          make TARGET="aarch64-macos" ARGS="-mcpu generic" release
+          mv duckdb-proxy release/duckdb-proxy-aarch64-macos/
+
+      - name: create archive
+        run: |
+          cd release
+
+          mv ../lib/duckdb/libduckdb.so duckdb-proxy-x86_64-linux-gnu/
+          tar -cJf duckdb-proxy-x86_64-linux-gnu.tar.xz duckdb-proxy-x86_64-linux-gnu
+
+          mv ../lib/duckdb/duckdb.dll duckdb-proxy-x86_64-windows/
+          tar -czf duckdb-proxy-x86_64-windows.tar.gz duckdb-proxy-x86_64-windows
+
+          cp ../lib/duckdb/libduckdb.dylib duckdb-proxy-x86_64-macos/
+          tar -cJf duckdb-proxy-x86_64-macos.tar.xz duckdb-proxy-x86_64-macos
+
+          mv ../lib/duckdb/libduckdb.dylib duckdb-proxy-aarch64-macos/
+          tar -cJf duckdb-proxy-aarch64-macos.tar.xz duckdb-proxy-aarch64-macos
+
+      - name: release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            /home/runner/work/duckdb-proxy/duckdb-proxy/release/duckdb-proxy-x86_64-linux-gnu.tar.xz
+            /home/runner/work/duckdb-proxy/duckdb-proxy/release/duckdb-proxy-x86_64-windows.tar.gz
+            /home/runner/work/duckdb-proxy/duckdb-proxy/release/duckdb-proxy-x86_64-macos.tar.xz
+            /home/runner/work/duckdb-proxy/duckdb-proxy/release/duckdb-proxy-aarch64-macos.tar.xz

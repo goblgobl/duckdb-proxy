@@ -37,7 +37,7 @@ pub fn start(app: *App) !void {
 	router.post("/api/1/exec/:id", sql.exec);
 
 	const http_address = try std.fmt.allocPrint(app.allocator, "http://{s}:{d}", .{server.config.address.?, server.config.port.?});
-	logz.info().ctx("http.listener").string("address", http_address).log();
+	logz.info().ctx("http.listener").string("address", http_address).string("db_path", app.config.db.path).log();
 	app.allocator.free(http_address);
 
 	try server.listen();

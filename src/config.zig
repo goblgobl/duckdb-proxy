@@ -1,10 +1,11 @@
+const logz = @import("logz");
 const httpz = @import("httpz");
 const builtin = @import("builtin");
 
 pub const Config = struct {
 	const DB = struct {
 		// path to the db
-		path: []const u8 = "db.duckdb",
+		path: [:0]const u8 = "db.duckdb",
 
 	// number of connections to the db to keep
 		pool_size: u32 = 50,
@@ -23,6 +24,8 @@ pub const Config = struct {
 	// The instance_id is part of the request_id, thus N instances will generate
 	// distinct request_ids from each other
 	instance_id: u8 = 0,
+
+	logger: logz.Config = logz.Config{},
 
 	// https://github.com/ziglang/zig/issues/15091
 	log_http: bool = if (builtin.is_test) false else true,

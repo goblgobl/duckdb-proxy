@@ -11,6 +11,8 @@ pub const Env = @import("env.zig").Env;
 pub const Config = @import("config.zig").Config;
 pub const Parameter = @import("parameter.zig").Parameter;
 
+pub const version = @embedFile("version.txt");
+
 // Log DuckDB error.
 const logz = @import("logz");
 pub fn duckdbError(ctx: []const u8, err: anytype, logger: logz.Logger) error{DuckDBError, ReadOnly} {
