@@ -12,7 +12,7 @@ pub fn main() !void {
 	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 	const allocator = gpa.allocator();
 
-	const config = (try parseArgs(allocator)) orelse std.os.exit(1);
+	const config = (try parseArgs(aa)) orelse std.os.exit(1);
 
 	try logz.setup(allocator, config.logger);
 	logz.info().ctx("Log.setup").
@@ -99,7 +99,7 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 	}
 
 	if (args.getSingleValue("address")) |value| {
-		address = value;
+		address = try allocator.dupe(u8, value);
 	}
 
 	if (args.getSingleValue("log_level")) |value| {
