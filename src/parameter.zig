@@ -120,6 +120,12 @@ pub const Parameter = struct {
 					else => return stmt.bindDynamic(index, null),
 				}
 			},
+			.bitstring => {
+				switch (try bitstring_validator.validateValue(value, validator)) {
+					.string => |v| return stmt.bindDynamic(index, v),
+					else => return stmt.bindDynamic(index, null),
+				}
+			},
 			.date => {
 				switch (try date_validator.validateValue(value, validator)) {
 					.date => |v| {
@@ -280,6 +286,7 @@ var date_validator: *validate.Date(void) = undefined;
 var time_validator: *validate.Time(void) = undefined;
 var string_validator: *validate.String(void) = undefined;
 var blob_validator: *validate.String(void) = undefined;
+var bitstring_validator: *validate.String(void) = undefined;
 var interval_validator:  *validate.Object(void) = undefined;
 
 // Called in init.zig
@@ -306,9 +313,25 @@ pub fn init(builder: *validate.Builder(void)) !void {
 	time_validator = builder.time(.{.parse = true});
 	string_validator = builder.string(.{});
 	blob_validator = builder.string(.{.decode = .base64});
+	bitstring_validator = builder.string(.{.function = validateBitstring});
 	interval_validator = builder.object(&.{
 		builder.field("months", builder.int(i32, .{.default = 0})),
 		builder.field("days", builder.int(i32, .{.default = 0})),
 		builder.field("micros", builder.int(i64, .{.default = 0})),
 	}, .{});
+}
+
+fn validateBitstring(optional_value: ?[]const u8, context: *validate.Context(void)) !?[]const u8 {
+	const value = optional_value orelse return null;
+	for (value) |b| {
+		if (b != '0' and b != '1') {
+			try context.add(.{
+				.code = dproxy.val.INVALID_BITSTRING,
+				.err = "bitstring must contain only 0s and 1s",
+			});
+			return null;
+		}
+	}
+	return value;
+
 }

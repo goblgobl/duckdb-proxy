@@ -3,3 +3,4 @@ lib/duckdb
 zig-out/
 zig-cache/
 db.duckdb*
+tests/db.duckdb*

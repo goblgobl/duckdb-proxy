@@ -12,7 +12,7 @@ pub fn main() !void {
 	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 	const allocator = gpa.allocator();
 
-	const config = (try parseArgs(aa)) orelse std.os.exit(1);
+	const config = (try parseArgs(allocator)) orelse std.os.exit(1);
 
 	try logz.setup(allocator, config.logger);
 	logz.info().ctx("Log.setup").
@@ -36,16 +36,16 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 
 	var cmd = app.rootCommand();
 	try cmd.addArg(yazap.Arg.positional("DB_PATH", null, null));
-	try cmd.addArg(yazap.Arg.singleValueOption("port", 'l', "the port to listen on (default: 8012)"));
-	try cmd.addArg(yazap.Arg.singleValueOption("address", 'a', "the address to bind to (default: 127.0.0.1)"));
-	try cmd.addArg(yazap.Arg.booleanOption("readonly", null, "opens the database in readonly mode"));
-	try cmd.addArg(yazap.Arg.booleanOption("external_access", null, "enables the duckdb enable_external_access configuration"));
-	try cmd.addArg(yazap.Arg.singleValueOption("pool_size", null, "number of connections to keep open (default: 50)"));
-	try cmd.addArg(yazap.Arg.singleValueOption("max_params", null, "the maximum number of parameters allowed per request (default: none)"));
-	try cmd.addArg(yazap.Arg.singleValueOptionWithValidValues("log_level", null, "log level to use (default: INFO), see also log_http)", &[_][]const u8{"info", "warn", "error", "fatal", "none"}));
-	try cmd.addArg(yazap.Arg.booleanOption("log_http", null, "log http request lines, see also log_level"));
+	try cmd.addArg(yazap.Arg.singleValueOption("port", 'l', "Port to listen on (default: 8012)"));
+	try cmd.addArg(yazap.Arg.singleValueOption("address", 'a', "Address to bind to (default: 127.0.0.1)"));
+	try cmd.addArg(yazap.Arg.booleanOption("readonly", null, "Opens the database in readonly mode"));
+	try cmd.addArg(yazap.Arg.booleanOption("external_access", null, "Enables the duckdb enable_external_access configuration"));
+	try cmd.addArg(yazap.Arg.singleValueOption("pool_size", null, "Number of connections to keep open (default: 50)"));
+	try cmd.addArg(yazap.Arg.singleValueOption("max_params", null, "Maximum number of parameters allowed per request (default: no limit)"));
+	try cmd.addArg(yazap.Arg.singleValueOptionWithValidValues("log_level", null, "Log level to use (default: INFO), see also log_http)", &[_][]const u8{"info", "warn", "error", "fatal", "none"}));
+	try cmd.addArg(yazap.Arg.booleanOption("log_http", null, "Log http request lines, works independently of log_level"));
 	try cmd.addArg(yazap.Arg.singleValueOption("cors_origin", null, "Enables CORS response headers using the specified origin"));
-	try cmd.addArg(yazap.Arg.booleanOption("version", 'v', "print the version and exit"));
+	try cmd.addArg(yazap.Arg.booleanOption("version", 'v', "Print the version and exit"));
 
 	const stdout = std.io.getStdOut().writer();
 	const args = app.parseProcess() catch {

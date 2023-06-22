@@ -89,7 +89,8 @@ pub fn setup() void {
 			\\   col_enum everything_type,
 			\\   col_list_integer integer[],
 			\\   col_list_varchar varchar[],
-			\\   col_interval interval
+			\\   col_interval interval,
+			\\   col_bitstring bit
 			\\ )
 		) catch unreachable;
 	}

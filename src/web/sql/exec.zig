@@ -227,6 +227,7 @@ fn translateScalar(aa: Allocator, src: anytype, parameter_type: zuckdb.Parameter
 				return .{.map = map};
 			}
 		},
+		.bitstring => if (src.get([]u8, i)) |v| return .{.string = try zuckdb.bitToString(aa, v)},
 		else => return .{.string = try std.fmt.allocPrint(aa, "Cannot serialize: {any}", .{parameter_type})},
 	}
 
@@ -285,15 +286,6 @@ test "mutate: wrong parameters" {
 		try t.expectError(error.Validation, handler(tc.env, tc.web.req, tc.web.res));
 		try tc.expectInvalid(.{.code = dproxy.val.WRONG_PARAMETER_COUNT, .field = "params", .err = "SQL statement requires 2 parameters, 1 was given"});
 	}
-}
-
-test "mutate: unsupported param type" {
-	var tc = t.context(.{});
-	defer tc.deinit();
-
-	tc.web.json(.{.sql = "select $1::bit", .params = .{1}});
-	try t.expectError(error.Validation, handler(tc.env, tc.web.req, tc.web.res));
-	try tc.expectInvalid(.{.code = dproxy.val.UNSUPPORTED_PARAMETER_TYPE, .field = "params.0", .err = "Unsupported parameter type: $1 - $unknown"});
 }
 
 test "mutate: invalid parameter value" {
@@ -365,12 +357,13 @@ test "mutate: every type" {
 			\\   col_enum,
 			\\   col_list_integer,
 			\\   col_list_varchar,
-			\\   col_interval
+			\\   col_interval,
+			\\   col_bitstring
 			\\ ) values (
 			\\   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
 			\\   $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
 			\\   $21, [1, null, 2], ['over', '9000', '!', '!1'],
-			\\   $22,
+			\\   $22, $23
 			\\ )
 			\\ returning *
 		,
@@ -380,7 +373,7 @@ test "mutate: every type" {
 			-1.75, 3.1400009, 901.22,
 			true, "2023-06-20", "13:35:29.332", 1687246572940921,
 			"dGhpcyBpcyBhIGJsb2I=", "over 9000", "804b6dd4-d23b-4ea0-af2a-e3bf39bca496",
-			"{\"over\":9000}", "type_b", "45 days"
+			"{\"over\":9000}", "type_b", "45 days", "001010011101"
 		}
 	});
 	handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
@@ -413,7 +406,8 @@ test "mutate: every type" {
 			"col_enum",
 			"col_list_integer",
 			"col_list_varchar",
-			"col_interval"
+			"col_interval",
+			"col_bitstring"
 		},
 		.rows = .{.{
 			-32,
@@ -446,6 +440,7 @@ test "mutate: every type" {
 			&.{"over", "9000", "!", "!1"},
 
 			.{.months = 0, .days = 45, .micros = 0},
+			"001010011101"
 		}}
 	});
 }

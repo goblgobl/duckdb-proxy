@@ -3,8 +3,8 @@
 	.version = "0.0.0",
 	.dependencies = .{
 		.zuckdb = .{
-			.url = "https://github.com/karlseguin/zuckdb.zig/archive/aec389dfcf3a78746e1d5215a701865b70f24b26.tar.gz",
-			.hash = "12201e4c4f5dce94b42b0189faca488a0d9238820fa46375750ac342446dfc3b08da"
+			.url = "https://github.com/karlseguin/zuckdb.zig/archive/cadc8d1af9b184fce6b2cea79d30a9d91b34261d.tar.gz",
+			.hash = "122073adfccb8eacdc2a184a2d31be08fb7b433436416388e82703387a147330e816"
 		},
 		.httpz = .{
 			.url = "https://github.com/karlseguin/http.zig/archive/4e1240eda17cf67e7e1ef2dea458e3e26463cdc7.tar.gz",
@@ -24,7 +24,7 @@
 		},
 		.yazap = .{
 			.url = "https://github.com/PrajwalCH/yazap/archive/0039130d3fb995ad1fce8b8be2df25c23beba0f7.tar.gz",
-			.hash = "12204a340f0b6da027541245a3feacec00e29cd4e9cc4e666dec430e5cdadee033f4"
+			.hash = "1220315dcc16c9520605162c21f7ea5973461a9c0b212957cc209cead86698e0e296"
 		},
 	},
 }
