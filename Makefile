@@ -12,7 +12,7 @@ release:
 	# https://github.com/ziglang/zig/issues/15849
 	zig build-exe src/main.zig \
 		--name duckdb-proxy \
-		-O ReleaseSafe \
+		-O ReleaseFast \
 		--cache-dir zig-cache \
 		--global-cache-dir ~/.cache/zig \
 		--mod uuid::lib/uuid/uuid.zig \
@@ -27,6 +27,7 @@ release:
 		-I lib/zuckdb.zig/lib/ \
 		-L lib/duckdb/ \
 		-lduckdb \
+		-lc \
 		-rpath . \
 		-target $(TARGET) \
 		$(ARGS)
