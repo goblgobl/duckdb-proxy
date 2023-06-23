@@ -27,7 +27,6 @@ release:
 		-I lib/zuckdb.zig/lib/ \
 		-L lib/duckdb/ \
 		-lduckdb \
-		-lc \
 		-rpath . \
 		-target $(TARGET) \
 		$(ARGS)
