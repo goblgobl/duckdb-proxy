@@ -40,7 +40,7 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 	try cmd.addArg(yazap.Arg.singleValueOption("address", 'a', "Address to bind to (default: 127.0.0.1)"));
 	try cmd.addArg(yazap.Arg.booleanOption("readonly", null, "Opens the database in readonly mode"));
 	try cmd.addArg(yazap.Arg.booleanOption("with_wrap", null, "Executes the provided SQL as \"with _ as ($SQL) select * from _\", significantly limiting the type of queries that can be run"));
-	try cmd.addArg(yazap.Arg.booleanOption("max_limit", null, "Force a \"limit N\" on all SQL, this automatically enables --with_wrap"));
+	try cmd.addArg(yazap.Arg.singleValueOption("max_limit", null, "Force a \"limit N\" on all SQL, this automatically enables --with_wrap"));
 	try cmd.addArg(yazap.Arg.booleanOption("external_access", null, "Enables the duckdb enable_external_access configuration"));
 	try cmd.addArg(yazap.Arg.singleValueOption("pool_size", null, "Number of connections to keep open (default: 50)"));
 	try cmd.addArg(yazap.Arg.singleValueOption("max_params", null, "Maximum number of parameters allowed per request (default: no limit)"));

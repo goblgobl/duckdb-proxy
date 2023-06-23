@@ -43,7 +43,8 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 	if (app.with_wrap) {
 		try sqlz.ensureTotalCapacity(sql.len + 50);
 		sqlz.appendSliceAssumeCapacity("with _dproxy as (");
-		sqlz.appendSliceAssumeCapacity(sql);
+		// if we're wrapping, we need to strip any trailing ; to keep it a valid SQL
+		sqlz.appendSliceAssumeCapacity(stripTrailingSemicolon(sql));
 		sqlz.appendSliceAssumeCapacity(") select * from _dproxy");
 		if (app.max_limit) |l| {
 			sqlz.appendSliceAssumeCapacity(l);
@@ -260,6 +261,18 @@ fn serializeRow(row: []typed.Value, prefix: []const u8, buf: *std.ArrayList(u8),
 	try buf.appendSlice(prefix);
 	try std.json.stringify(row, .{}, writer);
 	return buf.items;
+}
+
+fn stripTrailingSemicolon(sql: []const u8) []const u8 {
+	var i : usize = sql.len-1;
+	while (i >= 0) : (i -= 1) {
+		if (!std.ascii.isWhitespace(sql[i])) break;
+	}
+
+	while (i >= 0) : (i -= 1) {
+		if (sql[i] != ';') break;
+	}
+	return sql[0..i+1];
 }
 
 const t = dproxy.testing;
@@ -546,6 +559,22 @@ test "mutate: with_wrap" {
 	}
 
 	{
+		// semicolon ok
+		tc.reset();
+		tc.web.json(.{.sql = "select 1 as x;",});
+		handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
+		try tc.web.expectJson(.{.cols = .{"x"}, .rows = .{.{1}}});
+	}
+
+	{
+		// semicolon with spacing
+		tc.reset();
+		tc.web.json(.{.sql = "select 1 as x ;  \t\n ",});
+		handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
+		try tc.web.expectJson(.{.cols = .{"x"}, .rows = .{.{1}}});
+	}
+
+	{
 		// nested CTE, can lah!
 		tc.reset();
 		tc.web.json(.{.sql = "with x as (select 3 as y) select * from x union all select 4",});
@@ -577,7 +606,6 @@ test "mutate: with_wrap" {
 		try tc.expectInvalid(.{.code = dproxy.val.INVALID_SQL, .field = "sql"});
 	}
 }
-
 
 test "mutate: max_limit" {
 	var tc = t.context(.{.max_limit = 2});
