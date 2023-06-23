@@ -39,6 +39,7 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 	try cmd.addArg(yazap.Arg.singleValueOption("port", 'l', "Port to listen on (default: 8012)"));
 	try cmd.addArg(yazap.Arg.singleValueOption("address", 'a', "Address to bind to (default: 127.0.0.1)"));
 	try cmd.addArg(yazap.Arg.booleanOption("readonly", null, "Opens the database in readonly mode"));
+	try cmd.addArg(yazap.Arg.booleanOption("describe_first", null, "Runs \"describe $SQL\" before executing $SQL. This restricts the allowed SQL queries."));
 	try cmd.addArg(yazap.Arg.booleanOption("external_access", null, "Enables the duckdb enable_external_access configuration"));
 	try cmd.addArg(yazap.Arg.singleValueOption("pool_size", null, "Number of connections to keep open (default: 50)"));
 	try cmd.addArg(yazap.Arg.singleValueOption("max_params", null, "Maximum number of parameters allowed per request (default: no limit)"));
@@ -114,6 +115,7 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 			.path = if (args.getSingleValue("DB_PATH")) |v| try allocator.dupeZ(u8, v) else "db.duckdb",
 			.pool_size = pool_size,
 			.readonly = args.containsArg("readonly"),
+			.describe_first = args.containsArg("describe_first"),
 			.external_access = args.containsArg("external_access")
 		},
 		.http = .{

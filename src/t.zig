@@ -100,7 +100,7 @@ pub fn setup() void {
 // It also includes a httpz.testing instance, so that we can easily test http
 // handlers. It uses and exposes an arena allocator so that, any memory we need
 // to allocate within the test itself, doesn't have to be micro-managed.
-pub fn context(_: Context.Config) *Context {
+pub fn context(config: Context.Config) *Context {
 	var arena = allocator.create(std.heap.ArenaAllocator) catch unreachable;
 	arena.* = std.heap.ArenaAllocator.init(allocator);
 
@@ -110,6 +110,7 @@ pub fn context(_: Context.Config) *Context {
 		.db = .{
 			.pool_size = 2,
 			.path = "tests/db.duckdb",
+			.describe_first = config.describe_first,
 		},
 	}) catch unreachable;
 
@@ -139,6 +140,7 @@ pub const Context = struct {
 	arena: std.mem.Allocator,
 
 	const Config = struct {
+		describe_first: bool = false,
 	};
 
 	pub fn deinit(self: *Context) void {

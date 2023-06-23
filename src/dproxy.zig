@@ -40,7 +40,8 @@ pub const codes = struct {
 
 pub const val = struct {
 	pub const INVALID_SQL = 100;
-	pub const UNSUPPORTED_PARAMETER_TYPE = 101;
-	pub const WRONG_PARAMETER_COUNT = 102;
-	pub const INVALID_BITSTRING = 103;
+	pub const INVALID_SQL_DESCRIBE = 101;
+	pub const UNSUPPORTED_PARAMETER_TYPE = 102;
+	pub const WRONG_PARAMETER_COUNT = 103;
+	pub const INVALID_BITSTRING = 104;
 };

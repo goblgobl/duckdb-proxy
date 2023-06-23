@@ -34,7 +34,44 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 	const conn = try env.app.dbs.acquire();
 	defer env.app.dbs.release(conn);
 
-	const stmt = switch (conn.prepare(sql)) {
+	// The zuckdb library is going to dupeZ the SQL to get a null-terminated string
+	// We might as well do this with our arena allocator. PLUS, if `describe_first`
+	// is enabled, we'll need this twice.
+	var buf: []u8 = undefined;
+
+	// This will point into buf. When describe_first is true, buf will be:
+	//    describe $sql\0   and sqlz will point to the "$sql\0" part.
+	// When desribe_first is false, sqlz == buf.
+	var sqlz: [:0]u8 = undefined;
+
+	if (shouldDescribe(env, sql)) {
+		buf = try aa.alloc(u8, sql.len + 10);
+		@memcpy(buf[0..9], "describe ");
+		@memcpy(buf[9..buf.len - 1], sql);
+		buf[buf.len-1] = 0;
+		sqlz = @ptrCast([:0]u8, buf[9..]);
+
+		switch (conn.prepareZ(@ptrCast([:0]u8, buf))) {
+			.ok => |stmt| stmt.deinit(),
+			.err => |err| {
+				defer err.deinit();
+				validator.addInvalidField(.{
+					.field = "sql",
+					.err = try aa.dupe(u8, err.desc),
+					.code = dproxy.val.INVALID_SQL_DESCRIBE,
+				});
+				return error.Validation;
+			}
+		}
+
+	} else {
+		buf = try aa.alloc(u8, sql.len + 1);
+		@memcpy(buf[0..sql.len], sql);
+		buf[sql.len] = 0;
+		sqlz = @ptrCast([:0]u8, buf);
+	}
+
+	const stmt = switch (conn.prepareZ(sqlz)) {
 		.ok => |stmt| stmt,
 		.err => |err| {
 			defer err.deinit();
@@ -124,36 +161,48 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 		column_types[i] = rows.columnType(i);
 	}
 
-	var buf = std.ArrayList(u8).init(aa);
-	var writer = buf.writer();
+	var out = std.ArrayList(u8).init(aa);
+	var writer = out.writer();
 
 	var typed_row = try aa.alloc(typed.Value, column_types.len);
 
 	// write our preamble
-	try buf.appendSlice("{\n \"cols\": [");
+	try out.appendSlice("{\n \"cols\": [");
 	for (0..column_types.len) |i| {
 		try std.json.encodeJsonString(std.mem.span(rows.columnName(i)), .{}, writer);
-		try buf.append(',');
+		try out.append(',');
 	}
 	// strip out the last comma
-	buf.shrinkRetainingCapacity(buf.items.len - 1);
-	try buf.appendSlice("],\n \"rows\": [");
-	try res.chunk(buf.items);
+	out.shrinkRetainingCapacity(out.items.len - 1);
+	try out.appendSlice("],\n \"rows\": [");
+	try res.chunk(out.items);
 
 	var row_count: usize = 0;
 	if (try rows.next()) |row| {
 		try translateRow(aa, &row, column_types, typed_row);
-		try res.chunk(try serializeRow(typed_row, "\n   ", &buf, writer));
+		try res.chunk(try serializeRow(typed_row, "\n   ", &out, writer));
 		row_count = 1;
 	}
 	// convert each result row into a []typed.Value (which we can JSON serialize)
 	while (try rows.next()) |row| {
 		try translateRow(aa, &row, column_types, typed_row);
-		try res.chunk(try serializeRow(typed_row, ",\n   ", &buf, writer));
+		try res.chunk(try serializeRow(typed_row, ",\n   ", &out, writer));
 		row_count += 1;
 	}
 
 	try res.chunk("\n ]\n}");
+}
+
+// we should describe when describe_first == true AND the statement isn't already
+// a describe.
+fn shouldDescribe(env: *Env, sql: []const u8) bool {
+	if (!env.app.describe_first) return false;
+
+	for (sql, 0..) |c, i| {
+		if (std.ascii.isWhitespace(c)) continue;
+		return !std.ascii.startsWithIgnoreCase(sql[i..], "describe ");
+	}
+	return true;
 }
 
 fn translateRow(aa: Allocator, row: *const zuckdb.Row, parameter_types: []zuckdb.ParameterType, into: []typed.Value) !void {
@@ -510,5 +559,41 @@ test "mutate: special count case" {
 		tc.web.json(.{.sql = "insert into everythings (col_bigint) values (null) returning col_bigint as \"Count\"",});
 		handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
 		try tc.web.expectJson(.{.cols = .{"Count"}, .rows = .{.{null}}});
+	}
+}
+
+test "mutate: describe_first" {
+	var tc = t.context(.{.describe_first = true});
+	defer tc.deinit();
+
+	{
+		// a select statement can be executed, no problem
+		tc.web.json(.{.sql = "select 1 as x",});
+		handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
+		try tc.web.expectJson(.{.cols = .{"x"}, .rows = .{.{1}}});
+	}
+
+	{
+		// a describe statement can be executed, no problem
+		tc.reset();
+		tc.web.json(.{.sql = "describe select 1 as x"});
+		handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
+		try tc.web.expectStatus(200);
+	}
+
+	{
+		// different spacing/casing
+		tc.reset();
+		tc.web.json(.{.sql = "  \n  DEscribe  select 1 as x"});
+		handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
+		try tc.web.expectStatus(200);
+	}
+
+	{
+		// non describable
+		tc.reset();
+		tc.web.json(.{.sql = "begin"});
+		try t.expectError(error.Validation, handler(tc.env, tc.web.req, tc.web.res));
+		try tc.expectInvalid(.{.code = dproxy.val.INVALID_SQL_DESCRIBE, .field = "sql"});
 	}
 }

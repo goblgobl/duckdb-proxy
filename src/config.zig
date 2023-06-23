@@ -15,6 +15,11 @@ pub const Config = struct {
 
 		// sets the duckdb access_mode flag
 		readonly: bool = false,
+
+		// whether to try to run "describe $SQL" first on the statement, when combined
+		// with readonly = true, this helps ensure only SELECT statements can
+		// be executed
+		describe_first: bool = false
 	};
 
 	// Put a limit on the number of allowed parameters per query
