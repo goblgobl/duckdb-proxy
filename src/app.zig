@@ -10,7 +10,8 @@ const Allocator = std.mem.Allocator;
 pub const App = struct {
 	config: Config,
 	log_http: bool,
-	describe_first: bool,
+	with_wrap: bool,
+	max_limit: ?[]const u8,
 	dbs: zuckdb.Pool,
 	allocator: Allocator,
 	validators: validate.Pool(void),
@@ -34,12 +35,19 @@ pub const App = struct {
 		};
 		errdefer dbs.deinit();
 
+		var max_limit: ?[]const u8 = null;
+		if (config.max_limit) |l| {
+			// no reason to do this more than once!
+			max_limit = try std.fmt.allocPrint(allocator, " limit {d}", .{l});
+		}
+
 		return .{
 			.dbs = dbs,
 			.config = config,
 			.allocator = allocator,
 			.log_http = config.log_http,
-			.describe_first = config.db.describe_first,
+			.with_wrap = config.with_wrap,
+			.max_limit = max_limit,
 			.validators = try validate.Pool(void).init(allocator, .{}),
 		};
 	}
@@ -47,5 +55,8 @@ pub const App = struct {
 	pub fn deinit(self: *App) void {
 		self.dbs.deinit();
 		self.validators.deinit();
+		if (self.max_limit) |l| {
+			self.allocator.free(l);
+		}
 	}
 };

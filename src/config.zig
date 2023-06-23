@@ -10,20 +10,22 @@ pub const Config = struct {
 	// number of connections to the db to keep
 		pool_size: u32 = 50,
 
-		// sets the enable_external_access duckdb flag
+	// sets the enable_external_access duckdb flag
 		external_access: bool = true,
 
 		// sets the duckdb access_mode flag
 		readonly: bool = false,
-
-		// whether to try to run "describe $SQL" first on the statement, when combined
-		// with readonly = true, this helps ensure only SELECT statements can
-		// be executed
-		describe_first: bool = false
 	};
 
 	// Put a limit on the number of allowed parameters per query
 	max_parameters: ?u32 = null,
+
+	// whether to wrap the SQL in a "with _ as ($SQL) select * from _", this restricts
+	// the types of SQL statements that can be executed.
+	with_wrap: bool = false,
+
+	// forces a limit on the number of returned rows, when set, implies with_sql_wrapper.
+	max_limit: ?u32 = 0,
 
 	// For improving the uniqueness of request_id in a multi-server setup
 	// The instance_id is part of the request_id, thus N instances will generate

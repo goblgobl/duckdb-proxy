@@ -39,7 +39,8 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 	try cmd.addArg(yazap.Arg.singleValueOption("port", 'l', "Port to listen on (default: 8012)"));
 	try cmd.addArg(yazap.Arg.singleValueOption("address", 'a', "Address to bind to (default: 127.0.0.1)"));
 	try cmd.addArg(yazap.Arg.booleanOption("readonly", null, "Opens the database in readonly mode"));
-	try cmd.addArg(yazap.Arg.booleanOption("describe_first", null, "Runs \"describe $SQL\" before executing $SQL. This restricts the allowed SQL queries."));
+	try cmd.addArg(yazap.Arg.booleanOption("with_wrap", null, "Executes the provided SQL as \"with _ as ($SQL) select * from _\", significantly limiting the type of queries that can be run"));
+	try cmd.addArg(yazap.Arg.booleanOption("max_limit", null, "Force a \"limit N\" on all SQL, this automatically enables --with_wrap"));
 	try cmd.addArg(yazap.Arg.booleanOption("external_access", null, "Enables the duckdb enable_external_access configuration"));
 	try cmd.addArg(yazap.Arg.singleValueOption("pool_size", null, "Number of connections to keep open (default: 50)"));
 	try cmd.addArg(yazap.Arg.singleValueOption("max_params", null, "Maximum number of parameters allowed per request (default: no limit)"));
@@ -61,6 +62,7 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 
 	var pool_size: u32 = 50;
 	var log_level = logz.Level.Info;
+	var max_limit: ?u32 = null;
 	var max_parameters: ?u32 = null;
 	var cors: ?httpz.Config.CORS = null;
 	var port: u16 = 8012;
@@ -75,6 +77,13 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 			try stdout.print("pool_size must be greater than 0\n", .{});
 			return null;
 		}
+	}
+
+	if (args.getSingleValue("max_limit")) |value| {
+		max_limit = std.fmt.parseInt(u32, value, 10) catch {
+			try stdout.print("max_limit must be a positive integer\n", .{});
+			return null;
+		};
 	}
 
 	if (args.getSingleValue("max_params")) |value| {
@@ -115,7 +124,6 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 			.path = if (args.getSingleValue("DB_PATH")) |v| try allocator.dupeZ(u8, v) else "db.duckdb",
 			.pool_size = pool_size,
 			.readonly = args.containsArg("readonly"),
-			.describe_first = args.containsArg("describe_first"),
 			.external_access = args.containsArg("external_access")
 		},
 		.http = .{
@@ -123,7 +131,9 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 			.address = address,
 			.cors = cors
 		},
+		.max_limit = max_limit,
 		.max_parameters = max_parameters,
+		.with_wrap = args.containsArg("with_wrap") or max_limit != null,
 		.logger = .{.level = log_level},
 		.log_http = args.containsArg("log_http"),
 	};

@@ -22,6 +22,7 @@ pub fn init(builder: *validate.Builder(void), max_parameters: ?u32) !void {
 	}, .{});
 }
 
+
 pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 	const input = try base.web.validateBody(env, req, exec_validator);
 
@@ -31,47 +32,30 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 
 	var validator = env.validator;
 
-	const conn = try env.app.dbs.acquire();
-	defer env.app.dbs.release(conn);
+	const app = env.app;
+	const conn = try app.dbs.acquire();
+	defer app.dbs.release(conn);
 
 	// The zuckdb library is going to dupeZ the SQL to get a null-terminated string
-	// We might as well do this with our arena allocator. PLUS, if `describe_first`
-	// is enabled, we'll need this twice.
-	var buf: []u8 = undefined;
+	// We might as well do this with our arena allocator.
+	var sqlz = std.ArrayList(u8).init(aa);
 
-	// This will point into buf. When describe_first is true, buf will be:
-	//    describe $sql\0   and sqlz will point to the "$sql\0" part.
-	// When desribe_first is false, sqlz == buf.
-	var sqlz: [:0]u8 = undefined;
-
-	if (shouldDescribe(env, sql)) {
-		buf = try aa.alloc(u8, sql.len + 10);
-		@memcpy(buf[0..9], "describe ");
-		@memcpy(buf[9..buf.len - 1], sql);
-		buf[buf.len-1] = 0;
-		sqlz = @ptrCast([:0]u8, buf[9..]);
-
-		switch (conn.prepareZ(@ptrCast([:0]u8, buf))) {
-			.ok => |stmt| stmt.deinit(),
-			.err => |err| {
-				defer err.deinit();
-				validator.addInvalidField(.{
-					.field = "sql",
-					.err = try aa.dupe(u8, err.desc),
-					.code = dproxy.val.INVALID_SQL_DESCRIBE,
-				});
-				return error.Validation;
-			}
+	if (app.with_wrap) {
+		try sqlz.ensureTotalCapacity(sql.len + 50);
+		sqlz.appendSliceAssumeCapacity("with _dproxy as (");
+		sqlz.appendSliceAssumeCapacity(sql);
+		sqlz.appendSliceAssumeCapacity(") select * from _dproxy");
+		if (app.max_limit) |l| {
+			sqlz.appendSliceAssumeCapacity(l);
 		}
-
+		sqlz.appendAssumeCapacity(0);
 	} else {
-		buf = try aa.alloc(u8, sql.len + 1);
-		@memcpy(buf[0..sql.len], sql);
-		buf[sql.len] = 0;
-		sqlz = @ptrCast([:0]u8, buf);
+		try sqlz.ensureTotalCapacity(sql.len + 1);
+		sqlz.appendSliceAssumeCapacity(sql);
+		sqlz.appendAssumeCapacity(0);
 	}
 
-	const stmt = switch (conn.prepareZ(sqlz)) {
+	const stmt = switch (conn.prepareZ(@ptrCast([:0]const u8, sqlz.items))) {
 		.ok => |stmt| stmt,
 		.err => |err| {
 			defer err.deinit();
@@ -191,18 +175,6 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 	}
 
 	try res.chunk("\n ]\n}");
-}
-
-// we should describe when describe_first == true AND the statement isn't already
-// a describe.
-fn shouldDescribe(env: *Env, sql: []const u8) bool {
-	if (!env.app.describe_first) return false;
-
-	for (sql, 0..) |c, i| {
-		if (std.ascii.isWhitespace(c)) continue;
-		return !std.ascii.startsWithIgnoreCase(sql[i..], "describe ");
-	}
-	return true;
 }
 
 fn translateRow(aa: Allocator, row: *const zuckdb.Row, parameter_types: []zuckdb.ParameterType, into: []typed.Value) !void {
@@ -562,8 +534,8 @@ test "mutate: special count case" {
 	}
 }
 
-test "mutate: describe_first" {
-	var tc = t.context(.{.describe_first = true});
+test "mutate: with_wrap" {
+	var tc = t.context(.{.with_wrap = true});
 	defer tc.deinit();
 
 	{
@@ -574,19 +546,27 @@ test "mutate: describe_first" {
 	}
 
 	{
-		// a describe statement can be executed, no problem
+		// nested CTE, can lah!
 		tc.reset();
-		tc.web.json(.{.sql = "describe select 1 as x"});
+		tc.web.json(.{.sql = "with x as (select 3 as y) select * from x union all select 4",});
 		handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
-		try tc.web.expectStatus(200);
+		try tc.web.expectJson(.{.cols = .{"y"}, .rows = .{.{3}, .{4}}});
 	}
 
 	{
-		// different spacing/casing
+		// other statements cannot
 		tc.reset();
 		tc.web.json(.{.sql = "  \n  DEscribe  select 1 as x"});
-		handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
-		try tc.web.expectStatus(200);
+		try t.expectError(error.Validation, handler(tc.env, tc.web.req, tc.web.res));
+		try tc.expectInvalid(.{.code = dproxy.val.INVALID_SQL, .field = "sql"});
+	}
+
+	{
+		// other statements cannot
+		tc.reset();
+		tc.web.json(.{.sql = "delete from everythings"});
+		try t.expectError(error.Validation, handler(tc.env, tc.web.req, tc.web.res));
+		try tc.expectInvalid(.{.code = dproxy.val.INVALID_SQL, .field = "sql"});
 	}
 
 	{
@@ -594,6 +574,25 @@ test "mutate: describe_first" {
 		tc.reset();
 		tc.web.json(.{.sql = "begin"});
 		try t.expectError(error.Validation, handler(tc.env, tc.web.req, tc.web.res));
-		try tc.expectInvalid(.{.code = dproxy.val.INVALID_SQL_DESCRIBE, .field = "sql"});
+		try tc.expectInvalid(.{.code = dproxy.val.INVALID_SQL, .field = "sql"});
+	}
+}
+
+
+test "mutate: max_limit" {
+	var tc = t.context(.{.max_limit = 2});
+	defer tc.deinit();
+
+	{
+		tc.web.json(.{.sql = "select 1 as x union all select 2",});
+		handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
+		try tc.web.expectJson(.{.cols = .{"x"}, .rows = .{.{1}, .{2}}});
+	}
+
+	{
+		tc.reset();
+		tc.web.json(.{.sql = "select 1 as x union all select 2 union all select 3",});
+		handler(tc.env, tc.web.req, tc.web.res) catch |err| tc.handlerError(err);
+		try tc.web.expectJson(.{.cols = .{"x"}, .rows = .{.{1}, .{2}}});
 	}
 }

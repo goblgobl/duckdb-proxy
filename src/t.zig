@@ -110,8 +110,9 @@ pub fn context(config: Context.Config) *Context {
 		.db = .{
 			.pool_size = 2,
 			.path = "tests/db.duckdb",
-			.describe_first = config.describe_first,
 		},
+		.max_limit = config.max_limit,
+		.with_wrap = config.with_wrap or config.max_limit != null,
 	}) catch unreachable;
 
 	const env = aa.create(dproxy.Env) catch unreachable;
@@ -140,7 +141,8 @@ pub const Context = struct {
 	arena: std.mem.Allocator,
 
 	const Config = struct {
-		describe_first: bool = false,
+		with_wrap: bool = false,
+		max_limit: ?u32 = null,
 	};
 
 	pub fn deinit(self: *Context) void {

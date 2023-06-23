@@ -55,7 +55,7 @@ jobs:
 
       - name: build-x86_64-windows
         run: |
-          make TARGET="x86_64-windows" ARGS="-mcpu x86_64_v2 -lc" release
+          make TARGET="x86_64-windows-msvc" ARGS="-mcpu x86_64_v2 -lc" release
           mv duckdb-proxy.exe release/duckdb-proxy-x86_64-windows/
 
       - name: build-x86_64-macos
@@ -76,7 +76,7 @@ jobs:
           tar -cJf duckdb-proxy-x86_64-linux-gnu.tar.xz duckdb-proxy-x86_64-linux-gnu
 
           mv ../lib/duckdb/duckdb.dll duckdb-proxy-x86_64-windows/
-          tar -czf duckdb-proxy-x86_64-windows.tar.gz duckdb-proxy-x86_64-windows
+          zip -r duckdb-proxy-x86_64-windows.zip duckdb-proxy-x86_64-windows
 
           cp ../lib/duckdb/libduckdb.dylib duckdb-proxy-x86_64-macos/
           tar -cJf duckdb-proxy-x86_64-macos.tar.xz duckdb-proxy-x86_64-macos
@@ -89,6 +89,6 @@ jobs:
         with:
           files: |
             /home/runner/work/duckdb-proxy/duckdb-proxy/release/duckdb-proxy-x86_64-linux-gnu.tar.xz
-            /home/runner/work/duckdb-proxy/duckdb-proxy/release/duckdb-proxy-x86_64-windows.tar.gz
+            /home/runner/work/duckdb-proxy/duckdb-proxy/release/duckdb-proxy-x86_64-windows.zip
             /home/runner/work/duckdb-proxy/duckdb-proxy/release/duckdb-proxy-x86_64-macos.tar.xz
             /home/runner/work/duckdb-proxy/duckdb-proxy/release/duckdb-proxy-aarch64-macos.tar.xz
