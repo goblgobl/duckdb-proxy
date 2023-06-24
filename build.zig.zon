@@ -24,11 +24,11 @@
 		},
 		.yazap = .{
 			.url = "https://github.com/PrajwalCH/yazap/archive/0039130d3fb995ad1fce8b8be2df25c23beba0f7.tar.gz",
-			.hash = "1220315dcc16c9520605162c21f7ea5973461a9c0b212957cc209cead86698e0e296"
+			.hash = "12204a340f0b6da027541245a3feacec00e29cd4e9cc4e666dec430e5cdadee033f4"
 		},
 		.string_builder = .{
-			.url = "https://github.com/karlseguin/string_builder.zig/archive/00835730dd63cefedafd5bc2d76e5f8671b38c33.tar.gz",
-			.hash = "12200a50fc21fbf63dee8047b070690c7bca1d66eab5d368f8bd2f33d4bf05b61d55"
+			.url = "https://github.com/karlseguin/string_builder.zig/archive/af01e2e0f43e564dc107713e7988af1689f18fd1.tar.gz",
+			.hash = "122050964f4c47a0b89dfdc6f880874b14e2f8d3ce1f66446de5167abafa26c61e9e"
 		},
 	},
 }

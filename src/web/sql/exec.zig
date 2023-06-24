@@ -3,6 +3,8 @@ const httpz = @import("httpz");
 const typed = @import("typed");
 const zuckdb = @import("zuckdb");
 const validate = @import("validate");
+const StringBuilder = @import("string_builder").StringBuilder;
+
 const base = @import("_sql.zig");
 
 const dproxy = base.dproxy;
@@ -35,28 +37,28 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 
 	// The zuckdb library is going to dupeZ the SQL to get a null-terminated string
 	// We might as well do this with our arena allocator.
-	var sqlz = try app.buffer_pool.acquire();
-	defer app.buffer_pool.release(sqlz);
+	var buf = try app.buffer_pool.acquireWithAllocator(aa);
+	defer app.buffer_pool.release(buf);
 
 	if (app.with_wrap) {
-		try sqlz.ensureTotalCapacity(sql.len + 50);
-		sqlz.writeAssumeCapacity("with _dproxy as (");
+		try buf.ensureTotalCapacity(sql.len + 50);
+		buf.writeAssumeCapacity("with _dproxy as (");
 		// if we're wrapping, we need to strip any trailing ; to keep it a valid SQL
-		sqlz.writeAssumeCapacity(stripTrailingSemicolon(sql));
-		sqlz.writeAssumeCapacity(") select * from _dproxy");
+		buf.writeAssumeCapacity(stripTrailingSemicolon(sql));
+		buf.writeAssumeCapacity(") select * from _dproxy");
 		if (app.max_limit) |l| {
-			sqlz.writeAssumeCapacity(l);
+			buf.writeAssumeCapacity(l);
 		}
-		sqlz.writeByteAssumeCapacity(0);
+		buf.writeByteAssumeCapacity(0);
 	} else {
-		try sqlz.ensureTotalCapacity(sql.len + 1);
-		sqlz.writeAssumeCapacity(sql);
-		sqlz.writeByteAssumeCapacity(0);
+		try buf.ensureTotalCapacity(sql.len + 1);
+		buf.writeAssumeCapacity(sql);
+		buf.writeByteAssumeCapacity(0);
 	}
 
 	const conn = try app.dbs.acquire();
 	defer app.dbs.release(conn);
-	const stmt = switch (conn.prepareZ(@ptrCast([:0]const u8, sqlz.string()))) {
+	const stmt = switch (conn.prepareZ(@ptrCast([:0]const u8, buf.string()))) {
 		.ok => |stmt| stmt,
 		.err => |err| {
 			defer err.deinit();
@@ -146,32 +148,32 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 		column_types[i] = rows.columnType(i);
 	}
 
-	var out = std.ArrayList(u8).init(aa);
-	var writer = out.writer();
+	buf.reset(false);
+	var writer = buf.writer();
 
 	var typed_row = try aa.alloc(typed.Value, column_types.len);
 
 	// write our preamble
-	try out.appendSlice("{\n \"cols\": [");
+	try buf.write("{\n \"cols\": [");
 	for (0..column_types.len) |i| {
 		try std.json.encodeJsonString(std.mem.span(rows.columnName(i)), .{}, writer);
-		try out.append(',');
+		try buf.writeByte(',');
 	}
 	// strip out the last comma
-	out.shrinkRetainingCapacity(out.items.len - 1);
-	try out.appendSlice("],\n \"rows\": [");
-	try res.chunk(out.items);
+	buf.truncate(1);
+	try buf.write("],\n \"rows\": [");
+	try res.chunk(buf.string());
 
 	var row_count: usize = 0;
 	if (try rows.next()) |row| {
 		try translateRow(aa, &row, column_types, typed_row);
-		try res.chunk(try serializeRow(typed_row, "\n   ", &out, writer));
+		try res.chunk(try serializeRow(typed_row, "\n   ", buf, writer));
 		row_count = 1;
 	}
 	// convert each result row into a []typed.Value (which we can JSON serialize)
 	while (try rows.next()) |row| {
 		try translateRow(aa, &row, column_types, typed_row);
-		try res.chunk(try serializeRow(typed_row, ",\n   ", &out, writer));
+		try res.chunk(try serializeRow(typed_row, ",\n   ", buf, writer));
 		row_count += 1;
 	}
 
@@ -256,11 +258,11 @@ fn translateScalar(aa: Allocator, src: anytype, parameter_type: zuckdb.Parameter
 	return .{.null = {}};
 }
 
-fn serializeRow(row: []typed.Value, prefix: []const u8, buf: *std.ArrayList(u8), writer: anytype) ![]const u8 {
-	buf.clearRetainingCapacity();
-	try buf.appendSlice(prefix);
+fn serializeRow(row: []typed.Value, prefix: []const u8, buf: *StringBuilder, writer: anytype) ![]const u8 {
+	buf.reset(false);
+	try buf.write(prefix);
 	try std.json.stringify(row, .{}, writer);
-	return buf.items;
+	return buf.string();
 }
 
 fn stripTrailingSemicolon(sql: []const u8) []const u8 {
