@@ -44,6 +44,7 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 	try cmd.addArg(yazap.Arg.booleanOption("external_access", null, "Enables the duckdb enable_external_access configuration"));
 	try cmd.addArg(yazap.Arg.singleValueOption("pool_size", null, "Number of connections to keep open (default: 50)"));
 	try cmd.addArg(yazap.Arg.singleValueOption("max_params", null, "Maximum number of parameters allowed per request (default: no limit)"));
+	try cmd.addArg(yazap.Arg.singleValueOption("max_request_size", null, "Maximum size of the request body (default: 65536)"));
 	try cmd.addArg(yazap.Arg.singleValueOptionWithValidValues("log_level", null, "Log level to use (default: INFO), see also log_http)", &[_][]const u8{"info", "warn", "error", "fatal", "none"}));
 	try cmd.addArg(yazap.Arg.booleanOption("log_http", null, "Log http request lines, works independently of log_level"));
 	try cmd.addArg(yazap.Arg.singleValueOption("cors_origin", null, "Enables CORS response headers using the specified origin"));
@@ -60,16 +61,17 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 		return null;
 	}
 
-	var pool_size: u32 = 50;
+	var pool_size: u16 = 50;
 	var log_level = logz.Level.Info;
 	var max_limit: ?u32 = null;
 	var max_parameters: ?u32 = null;
 	var cors: ?httpz.Config.CORS = null;
 	var port: u16 = 8012;
 	var address: []const u8 = "127.0.0.1";
+	var max_request_size: u32 = 65536;
 
 	if (args.getSingleValue("pool_size")) |value| {
-		pool_size = std.fmt.parseInt(u32, value, 10) catch {
+		pool_size = std.fmt.parseInt(u16, value, 10) catch {
 			try stdout.print("pool_size must be a positive integer\n", .{});
 			return null;
 		};
@@ -92,6 +94,14 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 			return null;
 		};
 	}
+
+	if (args.getSingleValue("max_request_size")) |value| {
+		max_request_size = std.fmt.parseInt(u32, value, 10) catch {
+			try stdout.print("max_request_size must be a positive integer\n", .{});
+			return null;
+		};
+	}
+
 
 	if (args.getSingleValue("cors_origin")) |value| {
 		cors = .{
@@ -129,7 +139,15 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 		.http = .{
 			.port = port,
 			.address = address,
-			.cors = cors
+			.cors = cors,
+			.pool_size = pool_size,
+			.response = .{
+				// we use chunked responses, so don't a response buffer
+				.body_buffer_size = 2048
+			},
+			.request  = .{
+				.max_body_size = max_request_size,
+			},
 		},
 		.max_limit = max_limit,
 		.max_parameters = max_parameters,
