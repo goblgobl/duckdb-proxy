@@ -76,7 +76,7 @@ jobs:
           tar -cJf duckdb-proxy-x86_64-linux-gnu.tar.xz duckdb-proxy-x86_64-linux-gnu
 
           mv ../lib/duckdb/duckdb.dll duckdb-proxy-x86_64-windows-gnu/
-          zip -r duckdb-proxy-x86_64-windows.zip duckdb-proxy-x86_64-windows-gnu
+          zip -r duckdb-proxy-x86_64-windows-gnu.zip duckdb-proxy-x86_64-windows-gnu
 
           cp ../lib/duckdb/libduckdb.dylib duckdb-proxy-x86_64-macos/
           tar -cJf duckdb-proxy-x86_64-macos.tar.xz duckdb-proxy-x86_64-macos

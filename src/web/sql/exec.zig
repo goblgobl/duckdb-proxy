@@ -22,7 +22,6 @@ pub fn init(builder: *validate.Builder(void), max_parameters: ?u32) !void {
 	}, .{});
 }
 
-
 pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 	const input = try base.web.validateBody(env, req, exec_validator);
 
@@ -33,8 +32,6 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 	var validator = env.validator;
 
 	const app = env.app;
-	const conn = try app.dbs.acquire();
-	defer app.dbs.release(conn);
 
 	// The zuckdb library is going to dupeZ the SQL to get a null-terminated string
 	// We might as well do this with our arena allocator.
@@ -56,6 +53,8 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 		sqlz.appendAssumeCapacity(0);
 	}
 
+	const conn = try app.dbs.acquire();
+	defer app.dbs.release(conn);
 	const stmt = switch (conn.prepareZ(@ptrCast([:0]const u8, sqlz.items))) {
 		.ok => |stmt| stmt,
 		.err => |err| {
