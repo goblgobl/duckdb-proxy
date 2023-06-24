@@ -8,7 +8,7 @@ pub const Config = struct {
 		path: [:0]const u8 = "db.duckdb",
 
 	// number of connections to the db to keep
-		pool_size: u32 = 50,
+		pool_size: u16 = 50,
 
 	// sets the enable_external_access duckdb flag
 		external_access: bool = true,

@@ -22,6 +22,7 @@ pub fn build(b: *std.Build) !void {
 
 	try modules.put("typed", b.dependency("typed", dep_opts).module("typed"));
 	try modules.put("validate", b.dependency("validate", dep_opts).module("validate"));
+	try modules.put("string_builder", b.dependency("string_builder", dep_opts).module("string_builder"));
 
 	try modules.put("zuckdb", zuckdb_package.module("zuckdb"));
 	// try modules.put("zuckdb", b.addModule("zuckdb", .{

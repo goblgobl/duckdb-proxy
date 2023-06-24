@@ -26,5 +26,9 @@
 			.url = "https://github.com/PrajwalCH/yazap/archive/0039130d3fb995ad1fce8b8be2df25c23beba0f7.tar.gz",
 			.hash = "1220315dcc16c9520605162c21f7ea5973461a9c0b212957cc209cead86698e0e296"
 		},
+		.string_builder = .{
+			.url = "https://github.com/karlseguin/string_builder.zig/archive/00835730dd63cefedafd5bc2d76e5f8671b38c33.tar.gz",
+			.hash = "12200a50fc21fbf63dee8047b070690c7bca1d66eab5d368f8bd2f33d4bf05b61d55"
+		},
 	},
 }

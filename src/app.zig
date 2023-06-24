@@ -3,6 +3,7 @@ const logz = @import("logz");
 const zuckdb = @import("zuckdb");
 const validate = @import("validate");
 const dproxy = @import("dproxy.zig");
+const BufferPool = @import("string_builder").Pool;
 
 const Config = dproxy.Config;
 const Allocator = std.mem.Allocator;
@@ -14,6 +15,7 @@ pub const App = struct {
 	max_limit: ?[]const u8,
 	dbs: zuckdb.Pool,
 	allocator: Allocator,
+	buffer_pool: BufferPool,
 	validators: validate.Pool(void),
 
 	pub fn init(allocator: Allocator, config: Config) !App {
@@ -45,16 +47,18 @@ pub const App = struct {
 			.dbs = dbs,
 			.config = config,
 			.allocator = allocator,
+			.max_limit = max_limit,
 			.log_http = config.log_http,
 			.with_wrap = config.with_wrap,
-			.max_limit = max_limit,
 			.validators = try validate.Pool(void).init(allocator, .{}),
+			.buffer_pool = try BufferPool.init(allocator, db_config.pool_size, 2048),
 		};
 	}
 
 	pub fn deinit(self: *App) void {
 		self.dbs.deinit();
 		self.validators.deinit();
+		self.buffer_pool.deinit();
 		if (self.max_limit) |l| {
 			self.allocator.free(l);
 		}

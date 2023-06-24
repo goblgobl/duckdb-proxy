@@ -35,27 +35,28 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 
 	// The zuckdb library is going to dupeZ the SQL to get a null-terminated string
 	// We might as well do this with our arena allocator.
-	var sqlz = std.ArrayList(u8).init(aa);
+	var sqlz = try app.buffer_pool.acquire();
+	defer app.buffer_pool.release(sqlz);
 
 	if (app.with_wrap) {
 		try sqlz.ensureTotalCapacity(sql.len + 50);
-		sqlz.appendSliceAssumeCapacity("with _dproxy as (");
+		sqlz.writeAssumeCapacity("with _dproxy as (");
 		// if we're wrapping, we need to strip any trailing ; to keep it a valid SQL
-		sqlz.appendSliceAssumeCapacity(stripTrailingSemicolon(sql));
-		sqlz.appendSliceAssumeCapacity(") select * from _dproxy");
+		sqlz.writeAssumeCapacity(stripTrailingSemicolon(sql));
+		sqlz.writeAssumeCapacity(") select * from _dproxy");
 		if (app.max_limit) |l| {
-			sqlz.appendSliceAssumeCapacity(l);
+			sqlz.writeAssumeCapacity(l);
 		}
-		sqlz.appendAssumeCapacity(0);
+		sqlz.writeByteAssumeCapacity(0);
 	} else {
 		try sqlz.ensureTotalCapacity(sql.len + 1);
-		sqlz.appendSliceAssumeCapacity(sql);
-		sqlz.appendAssumeCapacity(0);
+		sqlz.writeAssumeCapacity(sql);
+		sqlz.writeByteAssumeCapacity(0);
 	}
 
 	const conn = try app.dbs.acquire();
 	defer app.dbs.release(conn);
-	const stmt = switch (conn.prepareZ(@ptrCast([:0]const u8, sqlz.items))) {
+	const stmt = switch (conn.prepareZ(@ptrCast([:0]const u8, sqlz.string()))) {
 		.ok => |stmt| stmt,
 		.err => |err| {
 			defer err.deinit();
