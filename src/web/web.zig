@@ -84,6 +84,7 @@ fn dispatcher(app: *App, action: httpz.Action(*Env), req: *httpz.Request, res: *
 			const error_id = try uuid.allocHex(res.arena);
 			logger.level(.Error).
 				ctx("http.err").
+				err(err).
 				stringSafe("eid", error_id).
 				stringSafe("method", @tagName(req.method)).
 				string("path", req.url.path).
