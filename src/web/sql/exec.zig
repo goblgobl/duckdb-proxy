@@ -20,7 +20,7 @@ pub fn init(builder: *validate.Builder(void), max_parameters: ?u32) !void {
 			.max = 10_000,
 			.required = true,
 		})),
-		builder.field("params",  builder.array(null, .{.max = if (max_parameters) |max| @intCast(usize, max) else null})),
+		builder.field("params",  builder.array(null, .{.max = if (max_parameters) |max| @intCast(max) else null})),
 	}, .{});
 }
 
@@ -58,7 +58,7 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 
 	const conn = try app.dbs.acquire();
 	defer app.dbs.release(conn);
-	const stmt = switch (conn.prepareZ(@ptrCast([:0]const u8, buf.string()))) {
+	const stmt = switch (conn.prepareZ(@ptrCast(buf.string()))) {
 		.ok => |stmt| stmt,
 		.err => |err| {
 			defer err.deinit();
@@ -227,18 +227,18 @@ fn translateScalar(aa: Allocator, src: anytype, parameter_type: zuckdb.Parameter
 		.date => {
 			if (src.get(zuckdb.Date, i)) |date| {
 				return .{.date = .{
-					.year = @intCast(i16, date.year),
-					.month = @intCast(u8, date.month),
-					.day = @intCast(u8, date.day),
+					.year = @intCast(date.year),
+					.month = @intCast(date.month),
+					.day = @intCast(date.day),
 				}};
 			}
 		},
 		.time => {
 			if (src.get(zuckdb.Time, i)) |time| {
 				return .{.time = .{
-					.hour = @intCast(u8, time.hour),
-					.min =  @intCast(u8, time.min),
-					.sec =  @intCast(u8, time.sec),
+					.hour = @intCast(time.hour),
+					.min =  @intCast(time.min),
+					.sec =  @intCast(time.sec),
 				}};
 			}
 		},

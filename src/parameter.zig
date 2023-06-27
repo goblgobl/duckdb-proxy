@@ -131,8 +131,8 @@ pub const Parameter = struct {
 					.date => |v| {
 						return stmt.bindDynamic(index, zuckdb.Date{
 							.year = v.year,
-							.month = @intCast(i8, v.month),
-							.day = @intCast(i8, v.day),
+							.month = @intCast(v.month),
+							.day = @intCast(v.day),
 						});
 					},
 					else => return stmt.bindDynamic(index, null),
@@ -142,10 +142,10 @@ pub const Parameter = struct {
 				switch (try time_validator.validateValue(value, validator)) {
 					.time => |v| {
 						return stmt.bindDynamic(index, zuckdb.Time{
-							.hour = @intCast(i8, v.hour),
-							.min = @intCast(i8, v.min),
-							.sec = @intCast(i8, v.sec),
-							.micros = @intCast(i32, v.micros),
+							.hour = @intCast(v.hour),
+							.min = @intCast(v.min),
+							.sec = @intCast(v.sec),
+							.micros = @intCast(v.micros),
 						});
 					},
 					else => return stmt.bindDynamic(index, null),
