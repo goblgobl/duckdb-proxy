@@ -1,7 +1,7 @@
 # duckdb-proxy
-Full usage documentation at <https://www.pondz.dev/docs/duckdb-proxy/>.
+Full usage documentation at <https://www.goblgobl.com/docs/duckdb-proxy/>.
 
-Simple demo at <https://www.pondz.dev/demo/duckdb-proxy/>.
+Simple demo at <https://www.goblgobl.com/demo/duckdb-proxy/>.
 
 ```bash
 $ ./duckdb-proxy
