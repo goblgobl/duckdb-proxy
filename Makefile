@@ -17,7 +17,7 @@ release:
 		--global-cache-dir ~/.cache/zig \
 		--mod uuid::lib/uuid/uuid.zig \
 		--mod logz::lib/log.zig/src/logz.zig \
-		--mod typed::lib/typed.zig/typed.zig \
+		--mod typed::lib/typed.zig/src/typed.zig \
 		--mod yazap::lib/yazap/src/lib.zig \
 		--mod httpz::lib/http.zig/src/httpz.zig \
 		--mod zuckdb::lib/zuckdb.zig/src/zuckdb.zig \

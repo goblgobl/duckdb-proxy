@@ -15,16 +15,16 @@
 			.hash = "122050964f4c47a0b89dfdc6f880874b14e2f8d3ce1f66446de5167abafa26c61e9e"
 		},
 		.typed = .{
-			.url = "https://github.com/karlseguin/typed.zig/archive/f4c9db63906f242d2976413f3d37e8563fc0d811.tar.gz",
-			.hash = "1220b5dab958479c8f9d0ceed8eae7ed6bded82f58fc59deba32f6eea5c735c15a71"
+			.url = "https://github.com/karlseguin/typed.zig/archive/d35faf3f6651575a39aeda77dae51afd266b2c8b.tar.gz",
+			.hash = "12209eddbf8ef61ee088cdec3fe5d1dd7cb3213abf95211dc9ae46eeac0835bb5c92"
 		},
 		.validate = .{
-			.url = "https://github.com/karlseguin/validate.zig/archive/f06a594686642e88e484b0fae8b68c6244c67f5d.tar.gz",
-			.hash = "1220d423f2b80e4f472cd97362b11fe3deff445fab666e5a325aa728a67d07f3a2fb"
+			.url = "https://github.com/karlseguin/validate.zig/archive/e12f3acbdb91afd55c199b13d3f339df3e101dee.tar.gz",
+			.hash = "1220aef0bdf88fc16370bd28d4ace59854db48a1b3da5422808cac704a5db293e763"
 		},
 		.zuckdb = .{
-			.url = "https://github.com/karlseguin/zuckdb.zig/archive/4ffdb148a23d7138c9397c5dde6d0d15a02e957d.tar.gz",
-			.hash = "1220a7ac98d874414b9573245c21b81acc50406e9ae0db0958e4e65fc1a027d64669"
+			.url = "https://github.com/karlseguin/zuckdb.zig/archive/429e94547f04a1379193d0bf0174363914692139.tar.gz",
+			.hash = "12204c8fc7b62816e4da18eb5ba3317ca954ae9cea301f8dd53d48c1a25f0220bb8b"
 		},
 		.yazap = .{
 			.url = "https://github.com/PrajwalCH/yazap/archive/0039130d3fb995ad1fce8b8be2df25c23beba0f7.tar.gz",
