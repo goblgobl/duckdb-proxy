@@ -27,7 +27,7 @@ pub fn expectDelta(expected: anytype, actual: @TypeOf(expected), delta: @TypeOf(
 // We will _very_ rarely use this. Zig test doesn't have test lifecycle hooks. We
 // can setup globals on startup, but we can't clean this up properly. If we use
 // std.testing.allocator for these, it'll report a leak. So, we create a gpa
-// within any leak reporting, and use that for the few globals that we have.
+// without any leak reporting, and use that for the few globals that we have.
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const leaking_allocator = gpa.allocator();
 
@@ -64,7 +64,7 @@ pub fn setup() void {
 
 		conn.execZ("create type everything_type as enum ('type_a', 'type_b')") catch unreachable;
 
-		conn.execZ(
+		const result = conn.queryZ(
 			\\ create table everythings (
 			\\   col_tinyint tinyint,
 			\\   col_smallint smallint,
@@ -92,7 +92,16 @@ pub fn setup() void {
 			\\   col_interval interval,
 			\\   col_bitstring bit
 			\\ )
-		) catch unreachable;
+		, .{});
+
+		defer result.deinit();
+		switch (result) {
+			.ok => {},
+			.err => |err| {
+				std.log.err("create table everythings: {s}\n", .{err.desc});
+				unreachable;
+			}
+		}
 	}
 }
 

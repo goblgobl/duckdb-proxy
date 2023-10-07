@@ -4,7 +4,7 @@ permissions:
   contents: write
 
 env:
-  DUCKDB_VERSION: 0.8.1
+  DUCKDB_VERSION: 0.9.0
 
 on:
   push:
@@ -38,7 +38,7 @@ jobs:
           git clone https://github.com/karlseguin/typed.zig.git lib/typed.zig
           git clone https://github.com/karlseguin/validate.zig lib/validate.zig
           git clone https://github.com/karlseguin/zuckdb.zig.git lib/zuckdb.zig
-          git clone https://github.com/karlseguin/string_builder.zig.git lib/string_builder.zig
+          git clone https://github.com/karlseguin/buffer.zig.git lib/buffer.zig
           git clone https://github.com/PrajwalCH/yazap.git lib/yazap
 
       - name: fetch duckdb

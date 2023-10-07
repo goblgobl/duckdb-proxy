@@ -14,17 +14,15 @@ pub fn build(b: *std.Build) !void {
 
 	const dep_opts = .{.target = target,.optimize = optimize};
 
-	const zuckdb_package = b.dependency("zuckdb", dep_opts);
-
 	try modules.put("logz", b.dependency("logz", dep_opts).module("logz"));
 	try modules.put("httpz", b.dependency("httpz", dep_opts).module("httpz"));
 	try modules.put("yazap", b.dependency("yazap", dep_opts).module("yazap"));
 
 	try modules.put("typed", b.dependency("typed", dep_opts).module("typed"));
+	try modules.put("buffer", b.dependency("buffer", dep_opts).module("buffer"));
 	try modules.put("validate", b.dependency("validate", dep_opts).module("validate"));
-	try modules.put("string_builder", b.dependency("string_builder", dep_opts).module("string_builder"));
 
-	try modules.put("zuckdb", zuckdb_package.module("zuckdb"));
+	try modules.put("zuckdb",  b.dependency("zuckdb", dep_opts).module("zuckdb"));
 	// try modules.put("zuckdb", b.addModule("zuckdb", .{
 	// 	.source_file = .{.path = "../zuckdb.zig/src/zuckdb.zig"},
 	// 	.dependencies = &.{.{.name = "typed", .module = modules.get("typed").?}},
@@ -40,7 +38,7 @@ pub fn build(b: *std.Build) !void {
 		.target = target,
 		.optimize = optimize,
 	});
-	try addLibs(exe, modules, zuckdb_package);
+	try addLibs(exe, modules);
 	b.installArtifact(exe);
 
 	const run_cmd = b.addRunArtifact(exe);
@@ -59,7 +57,7 @@ pub fn build(b: *std.Build) !void {
 		.optimize = optimize,
 	});
 
-	try addLibs(tests, modules, zuckdb_package);
+	try addLibs(tests, modules);
 	const run_test = b.addRunArtifact(tests);
 	run_test.has_side_effects = true;
 
@@ -67,18 +65,19 @@ pub fn build(b: *std.Build) !void {
 	test_step.dependOn(&run_test.step);
 }
 
-fn addLibs(step: *std.Build.CompileStep, modules: ModuleMap, zuckdb_package: anytype) !void {
+fn addLibs(step: *std.Build.CompileStep, modules: ModuleMap) !void {
+	const LazyPath = std.Build.LazyPath;
+
 	var it = modules.iterator();
 	while (it.next()) |m| {
 		step.addModule(m.key_ptr.*, m.value_ptr.*);
 	}
 
-	// this cannot be the right way to do this...
-	const zuckdb_include = try std.fs.path.join(gpa.allocator(), &[_][]const u8{zuckdb_package.builder.build_root.path.?, "lib"});
-	step.addIncludePath(zuckdb_include);
+	const duckdb_lib_path = LazyPath.relative("lib/duckdb");
 
 	step.linkLibC();
 	step.linkSystemLibrary("duckdb");
-	step.addRPath("lib/duckdb");
-	step.addLibraryPath("lib/duckdb");
+	step.addRPath(duckdb_lib_path);
+	step.addIncludePath(duckdb_lib_path);
+	step.addLibraryPath(duckdb_lib_path);
 }

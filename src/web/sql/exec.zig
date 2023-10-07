@@ -3,7 +3,7 @@ const httpz = @import("httpz");
 const typed = @import("typed");
 const zuckdb = @import("zuckdb");
 const validate = @import("validate");
-const StringBuilder = @import("string_builder").StringBuilder;
+const Buffer = @import("buffer").Buffer;
 
 const base = @import("_sql.zig");
 
@@ -258,7 +258,7 @@ fn translateScalar(aa: Allocator, src: anytype, parameter_type: zuckdb.Parameter
 	return .{.null = {}};
 }
 
-fn serializeRow(row: []typed.Value, prefix: []const u8, buf: *StringBuilder, writer: anytype) ![]const u8 {
+fn serializeRow(row: []typed.Value, prefix: []const u8, buf: *Buffer, writer: anytype) ![]const u8 {
 	buf.reset(false);
 	try buf.write(prefix);
 	try std.json.stringify(row, .{}, writer);

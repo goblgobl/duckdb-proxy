@@ -22,8 +22,8 @@ release:
 		--mod httpz::lib/http.zig/src/httpz.zig \
 		--mod zuckdb::lib/zuckdb.zig/src/zuckdb.zig \
 		--mod validate:typed:lib/validate.zig/src/validate.zig \
-		--mod string_builder:typed:lib/string_builder.zig/src/string_builder.zig \
-		--deps uuid,logz,typed,yazap,httpz,zuckdb,validate,string_builder \
+		--mod buffer:typed:lib/buffer.zig/src/buffer.zig \
+		--deps uuid,logz,typed,yazap,httpz,zuckdb,validate,buffer \
 		-I lib/duckdb/ \
 		-I lib/zuckdb.zig/lib/ \
 		-L lib/duckdb/ \

@@ -140,7 +140,6 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 			.port = port,
 			.address = address,
 			.cors = cors,
-			.pool_size = pool_size,
 			.response = .{
 				// we use chunked responses, so don't a response buffer
 				.body_buffer_size = 2048

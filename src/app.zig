@@ -3,7 +3,7 @@ const logz = @import("logz");
 const zuckdb = @import("zuckdb");
 const validate = @import("validate");
 const dproxy = @import("dproxy.zig");
-const BufferPool = @import("string_builder").Pool;
+const BufferPool = @import("buffer").Pool;
 
 const Config = dproxy.Config;
 const Allocator = std.mem.Allocator;
