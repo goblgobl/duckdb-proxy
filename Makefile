@@ -15,15 +15,14 @@ release:
 		-O ReleaseFast \
 		--cache-dir zig-cache \
 		--global-cache-dir ~/.cache/zig \
-		--mod uuid::lib/uuid/uuid.zig \
+		--mod zul::lib/zul/src/zul.zig \
 		--mod logz::lib/log.zig/src/logz.zig \
 		--mod typed::lib/typed.zig/src/typed.zig \
 		--mod yazap::lib/yazap/src/lib.zig \
 		--mod httpz::lib/http.zig/src/httpz.zig \
 		--mod zuckdb::lib/zuckdb.zig/src/zuckdb.zig \
 		--mod validate:typed:lib/validate.zig/src/validate.zig \
-		--mod buffer:typed:lib/buffer.zig/src/buffer.zig \
-		--deps uuid,logz,typed,yazap,httpz,zuckdb,validate,buffer \
+		--deps zul,logz,typed,yazap,httpz,zuckdb,validate \
 		-I lib/duckdb/ \
 		-I lib/zuckdb.zig/lib/ \
 		-L lib/duckdb/ \
