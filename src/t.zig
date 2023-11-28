@@ -131,7 +131,7 @@ pub fn context(config: Context.Config) *Context {
 		.validator = app.validators.acquire({}) catch unreachable,
 	};
 
-	var ctx = allocator.create(Context) catch unreachable;
+	const ctx = allocator.create(Context) catch unreachable;
 	ctx.* = .{
 		._arena = arena,
 		.app = app,

@@ -1,6 +1,6 @@
 const std = @import("std");
+const zul = @import("zul");
 const logz = @import("logz");
-const uuid = @import("uuid");
 const httpz = @import("httpz");
 const typed = @import("typed");
 const validate = @import("validate");
@@ -81,11 +81,11 @@ fn dispatcher(app: *App, action: httpz.Action(*Env), req: *httpz.Request, res: *
 			errors.ReadOnly.write(res);
 		},
 		else => {
-			const error_id = try uuid.allocHex(res.arena);
+			const error_id = zul.uuid.v4().toHex(.lower);
 			logger.level(.Error).
 				ctx("http.err").
 				err(err).
-				stringSafe("eid", error_id).
+				stringSafe("eid", &error_id).
 				stringSafe("method", @tagName(req.method)).
 				string("path", req.url.path).
 				log();
@@ -94,7 +94,7 @@ fn dispatcher(app: *App, action: httpz.Action(*Env), req: *httpz.Request, res: *
 			try res.json(.{
 				.err = "internal server error",
 				.code = dproxy.codes.INTERNAL_SERVER_ERROR_CAUGHT,
-				.error_id = error_id,
+				.error_id = &error_id,
 			}, .{});
 		}
 	};

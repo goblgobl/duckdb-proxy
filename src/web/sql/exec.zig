@@ -1,4 +1,5 @@
 const std = @import("std");
+const zul = @import("zul");
 const httpz = @import("httpz");
 const typed = @import("typed");
 const zuckdb = @import("zuckdb");
@@ -37,28 +38,28 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 
 	// The zuckdb library is going to dupeZ the SQL to get a null-terminated string
 	// We might as well do this with our arena allocator.
-	var buf = try app.buffer_pool.acquireWithAllocator(aa);
-	defer app.buffer_pool.release(buf);
+	var sb = try app.buffer_pool.acquire();
+	defer app.buffer_pool.release(sb);
 
 	if (app.with_wrap) {
-		try buf.ensureTotalCapacity(sql.len + 50);
-		buf.writeAssumeCapacity("with _dproxy as (");
+		try sb.ensureTotalCapacity(sql.len + 50);
+		sb.writeAssumeCapacity("with _dproxy as (");
 		// if we're wrapping, we need to strip any trailing ; to keep it a valid SQL
-		buf.writeAssumeCapacity(stripTrailingSemicolon(sql));
-		buf.writeAssumeCapacity(") select * from _dproxy");
+		sb.writeAssumeCapacity(stripTrailingSemicolon(sql));
+		sb.writeAssumeCapacity(") select * from _dproxy");
 		if (app.max_limit) |l| {
-			buf.writeAssumeCapacity(l);
+			sb.writeAssumeCapacity(l);
 		}
-		buf.writeByteAssumeCapacity(0);
+		sb.writeByteAssumeCapacity(0);
 	} else {
-		try buf.ensureTotalCapacity(sql.len + 1);
-		buf.writeAssumeCapacity(sql);
-		buf.writeByteAssumeCapacity(0);
+		try sb.ensureTotalCapacity(sql.len + 1);
+		sb.writeAssumeCapacity(sql);
+		sb.writeByteAssumeCapacity(0);
 	}
 
 	const conn = try app.dbs.acquire();
 	defer app.dbs.release(conn);
-	const stmt = switch (conn.prepareZ(@ptrCast(buf.string()))) {
+	const stmt = switch (conn.prepareZ(@ptrCast(sb.string()))) {
 		.ok => |stmt| stmt,
 		.err => |err| {
 			defer err.deinit();
@@ -148,32 +149,32 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 		column_types[i] = rows.columnType(i);
 	}
 
-	buf.reset(false);
-	var writer = buf.writer();
+	sb.clearRetainingCapacity();
+	const writer = sb.writer();
 
-	var typed_row = try aa.alloc(typed.Value, column_types.len);
+	const typed_row = try aa.alloc(typed.Value, column_types.len);
 
 	// write our preamble
-	try buf.write("{\n \"cols\": [");
+	try sb.write("{\n \"cols\": [");
 	for (0..column_types.len) |i| {
 		try std.json.encodeJsonString(std.mem.span(rows.columnName(i)), .{}, writer);
-		try buf.writeByte(',');
+		try sb.writeByte(',');
 	}
 	// strip out the last comma
-	buf.truncate(1);
-	try buf.write("],\n \"rows\": [");
-	try res.chunk(buf.string());
+	sb.truncate(1);
+	try sb.write("],\n \"rows\": [");
+	try res.chunk(sb.string());
 
 	var row_count: usize = 0;
 	if (try rows.next()) |row| {
 		try translateRow(aa, &row, column_types, typed_row);
-		try res.chunk(try serializeRow(typed_row, "\n   ", buf, writer));
+		try res.chunk(try serializeRow(typed_row, "\n   ", sb, writer));
 		row_count = 1;
 	}
 	// convert each result row into a []typed.Value (which we can JSON serialize)
 	while (try rows.next()) |row| {
 		try translateRow(aa, &row, column_types, typed_row);
-		try res.chunk(try serializeRow(typed_row, ",\n   ", buf, writer));
+		try res.chunk(try serializeRow(typed_row, ",\n   ", sb, writer));
 		row_count += 1;
 	}
 
@@ -207,7 +208,7 @@ fn translateScalar(aa: Allocator, src: anytype, parameter_type: zuckdb.Parameter
 		.blob => {
 			if (src.get([]u8, i)) |v| {
 				const encoder = std.base64.standard.Encoder;
-				var out = try aa.alloc(u8, encoder.calcSize(v.len));
+				const out = try aa.alloc(u8, encoder.calcSize(v.len));
 				return .{.string = encoder.encode(out, v)};
 			}
 		},
@@ -258,11 +259,11 @@ fn translateScalar(aa: Allocator, src: anytype, parameter_type: zuckdb.Parameter
 	return .{.null = {}};
 }
 
-fn serializeRow(row: []typed.Value, prefix: []const u8, buf: *Buffer, writer: anytype) ![]const u8 {
-	buf.reset(false);
-	try buf.write(prefix);
+fn serializeRow(row: []typed.Value, prefix: []const u8, sb: *zul.StringBuilder, writer: anytype) ![]const u8 {
+	sb.clearRetainingCapacity();
+	try sb.write(prefix);
 	try std.json.stringify(row, .{}, writer);
-	return buf.string();
+	return sb.string();
 }
 
 fn stripTrailingSemicolon(sql: []const u8) []const u8 {
