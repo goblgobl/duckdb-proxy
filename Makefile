@@ -1,34 +1,35 @@
 .PHONY: t
 t:
-	zig build test --summary all -freference-trace
+  zig build test --summary all -freference-trace
 
 .PHONY: s
 s:
-	zig build run -freference-trace
+  zig build run -freference-trace
 
 .PHONY: release
 release:
-	# Can't use buid.zig until this is fixed:
-	# https://github.com/ziglang/zig/issues/15849
-	zig build-exe src/main.zig \
-		--name duckdb-proxy \
-		-O ReleaseFast \
-		--cache-dir zig-cache \
-		--global-cache-dir ~/.cache/zig \
-		--mod zul::lib/zul/src/zul.zig \
-		--mod logz::lib/log.zig/src/logz.zig \
-		--mod typed::lib/typed.zig/src/typed.zig \
-		--mod yazap::lib/yazap/src/lib.zig \
-		--mod httpz::lib/http.zig/src/httpz.zig \
-		--mod zuckdb::lib/zuckdb.zig/src/zuckdb.zig \
-		--mod validate:typed:lib/validate.zig/src/validate.zig \
-		--deps zul,logz,typed,yazap,httpz,zuckdb,validate \
-		-I lib/duckdb/ \
-		-I lib/zuckdb.zig/lib/ \
-		-L lib/duckdb/ \
-		-lduckdb \
-		-rpath . \
-		-target $(TARGET) \
-		$(ARGS)
+  # Can't use buid.zig until this is fixed:
+  # https://github.com/ziglang/zig/issues/15849
+  zig build-exe \
+    --name duckdb-proxy \
+    -O ReleaseFast \
+    --cache-dir zig-cache \
+    --global-cache-dir ~/.cache/zig \
+    --dep zul --dep logz --dep typed --dep httpz --dep zuckdb --dep  validate \
+    -Mroot=src/main.zig \
+    -Mzul=lib/zul/src/zul.zig \
+    -Mlogz=lib/log.zig/src/logz.zig \
+    -Mtyped=lib/typed.zig/src/typed.zig \
+    --dep typed -Mvalidate=lib/validate.zig/src/validate.zig \
+    -Mwebsocket=lib/websocket.zig/src/websocket.zig \
+    --dep websocket -Mhttpz=lib/http.zig/src/httpz.zig \
+    -Mzuckdb=lib/zuckdb.zig/src/zuckdb.zig \
+    -I lib/duckdb/ \
+    -I lib/zuckdb.zig/lib/ \
+    -L lib/duckdb/ \
+    -lduckdb \
+    -rpath . \
+    -target $(TARGET) \
+    $(ARGS)
 
-	mkdir -p release/duckdb-proxy-$(TARGET)
+  mkdir -p release/duckdb-proxy-$(TARGET)

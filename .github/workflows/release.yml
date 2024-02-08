@@ -39,17 +39,21 @@ jobs:
           git clone https://github.com/karlseguin/validate.zig lib/validate.zig
           git clone https://github.com/karlseguin/zuckdb.zig.git lib/zuckdb.zig
           git clone https://github.com/karlseguin/zul.git lib/zul
+          git clone https://github.com/karlseguin/websocket.zig lib/websocket.zig
           pushd lib/http.zig
-            git reset --hard blocking
+            git reset --hard 1f4bcd0a444ec3de581b2bbb7977db4afcdf85bf
+          popd
+          pushd lib/websocket.zig
+            git reset --hard 1f2c4a56c642dab52fe12cdda1bd3f56865d1f86
           popd
 
       - name: fetch duckdb
         run: |
-          mkdir lib
-          wget -q "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/libduckdb-linux-amd64.zip" -O lib/libduckdb-linux-amd64.zip
-          wget -q "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/libduckdb-osx-universal.zip" -O lib/libduckdb-osx-universal.zip
-          wget -q "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/libduckdb-windows-amd64.zip" -O lib/libduckdb-windows-amd64.zip
-          cd lib && unzip -n \*.zip
+          mkdir lib/duckdb
+          wget -q "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/libduckdb-linux-amd64.zip" -O lib/duckdb/libduckdb-linux-amd64.zip
+          wget -q "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/libduckdb-osx-universal.zip" -O lib/duckdb/libduckdb-osx-universal.zip
+          wget -q "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/libduckdb-windows-amd64.zip" -O lib/duckdb/libduckdb-windows-amd64.zip
+          cd lib/duckdb && unzip -n \*.zip
 
       - name: build-x86_64-linux-gnu
         run: |
@@ -59,7 +63,7 @@ jobs:
       - name: build-x86_64-windows
         run: |
           make TARGET="x86_64-windows-gnu" ARGS="-mcpu x86_64_v2 -lc" release
-          mv duckdb-proxy.exe release/duckdb-proxy-x86_64-windows-gnu/
+          mv duckdb-proxy release/duckdb-proxy-x86_64-windows-gnu/duckdb-proxy.exe
 
       - name: build-x86_64-macos
         run: |
@@ -75,16 +79,16 @@ jobs:
         run: |
           cd release
 
-          mv ../lib/libduckdb.so duckdb-proxy-x86_64-linux-gnu/
+          mv ../lib/duckdb/libduckdb.so duckdb-proxy-x86_64-linux-gnu/
           tar -cJf duckdb-proxy-x86_64-linux-gnu.tar.xz duckdb-proxy-x86_64-linux-gnu
 
-          mv ../lib/duckdb.dll duckdb-proxy-x86_64-windows-gnu/
+          mv ../lib/duckdb/duckdb.dll duckdb-proxy-x86_64-windows-gnu/
           zip -r duckdb-proxy-x86_64-windows-gnu.zip duckdb-proxy-x86_64-windows-gnu
 
-          cp ../lib/libduckdb.dylib duckdb-proxy-x86_64-macos/
+          cp ../lib/duckdb/libduckdb.dylib duckdb-proxy-x86_64-macos/
           tar -cJf duckdb-proxy-x86_64-macos.tar.xz duckdb-proxy-x86_64-macos
 
-          mv ../lib/libduckdb.dylib duckdb-proxy-aarch64-macos/
+          mv ../lib/duckdb/libduckdb.dylib duckdb-proxy-aarch64-macos/
           tar -cJf duckdb-proxy-aarch64-macos.tar.xz duckdb-proxy-aarch64-macos
 
       - name: release
