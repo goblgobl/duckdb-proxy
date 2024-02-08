@@ -7,22 +7,8 @@ const validate = @import("validate");
 pub const web = @import("httpz").testing;
 const dproxy = @import("dproxy.zig");
 
+pub usingnamespace @import("zul").testing;
 pub const allocator = std.testing.allocator;
-
-// std.testing.expectEqual won't coerce expected to actual, which is a problem
-// when expected is frequently a comptime.
-// https://github.com/ziglang/zig/issues/4437
-pub fn expectEqual(expected: anytype, actual: anytype) !void {
-	try std.testing.expectEqual(@as(@TypeOf(actual), expected), actual);
-}
-
-pub const expectError = std.testing.expectError;
-pub const expectSlice = std.testing.expectEqualSlices;
-pub const expectString = std.testing.expectEqualStrings;
-pub fn expectDelta(expected: anytype, actual: @TypeOf(expected), delta: @TypeOf(expected)) !void {
-	try expectEqual(true, expected - delta <= actual);
-	try expectEqual(true, expected + delta >= actual);
-}
 
 // We will _very_ rarely use this. Zig test doesn't have test lifecycle hooks. We
 // can setup globals on startup, but we can't clean this up properly. If we use
@@ -56,15 +42,15 @@ pub fn setup() void {
 		};
 
 		// create some dummy data
-		const db = zuckdb.DB.init(allocator, "tests/db.duckdb", .{}).ok;
+		const db = zuckdb.DB.init(allocator, "tests/db.duckdb", .{}) catch unreachable;
 		defer db.deinit();
 
-		const conn = db.conn() catch unreachable;
+		var conn = db.conn() catch unreachable;
 		defer conn.deinit();
 
-		conn.execZ("create type everything_type as enum ('type_a', 'type_b')") catch unreachable;
+		_ = conn.exec("create type everything_type as enum ('type_a', 'type_b')", .{}) catch unreachable;
 
-		const result = conn.queryZ(
+		_ = conn.exec(
 			\\ create table everythings (
 			\\   col_tinyint tinyint,
 			\\   col_smallint smallint,
@@ -92,16 +78,7 @@ pub fn setup() void {
 			\\   col_interval interval,
 			\\   col_bitstring bit
 			\\ )
-		, .{});
-
-		defer result.deinit();
-		switch (result) {
-			.ok => {},
-			.err => |err| {
-				std.log.err("create table everythings: {s}\n", .{err.desc});
-				unreachable;
-			}
-		}
+		, .{}) catch unreachable;
 	}
 }
 
@@ -176,24 +153,14 @@ pub const Context = struct {
 		self.web = web.init(.{});
 	}
 
-	pub fn getRow(self: *Context, sql: [:0]const u8, values: anytype) ?typed.Map {
-		const conn = self.app.dbs.acquire() catch unreachable;
+	pub fn getRow(self: *Context, sql: [:0]const u8, values: anytype) ?zuckdb.OwningRow {
+		var conn = self.app.dbs.acquire() catch unreachable;
 		defer self.app.dbs.release(conn);
 
-		const row = switch (conn.rowZ(sql, values)) {
-			.ok => |row| row orelse return null,
-			.err => |err| {
-				std.log.err("GetRow: {s}\nErr: {s}", .{sql, err.desc});
-				err.deinit();
-				unreachable;
-			},
-		};
-		defer row.deinit();
-		// ideally, we need to keep `mp` around for as long as the returned map
-		// but eveyrthing we need is in the heap, and it's all allocated by our
-		// context's arena allocator.
-		var mp = row.mapBuilder(self.arena) catch unreachable;
-		return row.toMap(&mp) catch unreachable;
+		return conn.row(sql, values) catch |err| {
+			std.log.err("GetRow: {s}\nErr: {s}", .{sql, conn.err orelse @errorName(err)});
+			unreachable;
+		} orelse return null;
 	}
 
 	pub fn handlerError(self: *Context, err: anyerror) void {

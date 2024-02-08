@@ -81,7 +81,7 @@ fn dispatcher(app: *App, action: httpz.Action(*Env), req: *httpz.Request, res: *
 			errors.ReadOnly.write(res);
 		},
 		else => {
-			const error_id = zul.uuid.v4().toHex(.lower);
+			const error_id = zul.UUID.v4().toHex(.lower);
 			logger.level(.Error).
 				ctx("http.err").
 				err(err).
@@ -184,10 +184,10 @@ test "dispatcher: encodeRequestId" {
 	var tc = t.context(.{});
 	defer tc.deinit();
 
-	try t.expectString("AAAAAAYA", try encodeRequestId(tc.arena, 0, 3));
-	try t.expectString("AAAAABAA", try encodeRequestId(tc.arena, 0, 4));
-	try t.expectString("AAAAAAYC", try encodeRequestId(tc.arena, 2, 3));
-	try t.expectString("AAAAABAC", try encodeRequestId(tc.arena, 2, 4));
+	try t.expectEqual("AAAAAAYA", try encodeRequestId(tc.arena, 0, 3));
+	try t.expectEqual("AAAAABAA", try encodeRequestId(tc.arena, 0, 4));
+	try t.expectEqual("AAAAAAYC", try encodeRequestId(tc.arena, 2, 3));
+	try t.expectEqual("AAAAABAC", try encodeRequestId(tc.arena, 2, 4));
 }
 
 test "web.dispatch: invalid json" {

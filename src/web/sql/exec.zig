@@ -41,35 +41,34 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 	var sb = try app.buffer_pool.acquire();
 	defer app.buffer_pool.release(sb);
 
-	if (app.with_wrap) {
-		try sb.ensureTotalCapacity(sql.len + 50);
-		sb.writeAssumeCapacity("with _dproxy as (");
-		// if we're wrapping, we need to strip any trailing ; to keep it a valid SQL
-		sb.writeAssumeCapacity(stripTrailingSemicolon(sql));
-		sb.writeAssumeCapacity(") select * from _dproxy");
-		if (app.max_limit) |l| {
-			sb.writeAssumeCapacity(l);
-		}
-		sb.writeByteAssumeCapacity(0);
-	} else {
-		try sb.ensureTotalCapacity(sql.len + 1);
-		sb.writeAssumeCapacity(sql);
-		sb.writeByteAssumeCapacity(0);
-	}
+	const sql_string = switch (app.with_wrap) {
+		false => sql,
+		true => blk: {
+			try sb.ensureTotalCapacity(sql.len + 50);
+			sb.writeAssumeCapacity("with _dproxy as (");
+			// if we're wrapping, we need to strip any trailing ; to keep it a valid SQL
+			sb.writeAssumeCapacity(stripTrailingSemicolon(sql));
+			sb.writeAssumeCapacity(") select * from _dproxy");
+			if (app.max_limit) |l| {
+				sb.writeAssumeCapacity(l);
+			}
+			break :blk sb.string();
+		},
+	};
 
-	const conn = try app.dbs.acquire();
+	var conn = try app.dbs.acquire();
 	defer app.dbs.release(conn);
-	const stmt = switch (conn.prepareZ(@ptrCast(sb.string()))) {
-		.ok => |stmt| stmt,
-		.err => |err| {
-			defer err.deinit();
-			validator.addInvalidField(.{
+
+	var stmt = conn.prepare(sql_string, .{}) catch |err| switch (err) {
+		error.DuckDBError => {
+				validator.addInvalidField(.{
 				.field = "sql",
-				.err = try aa.dupe(u8, err.desc),
+				.err = if (conn.err) |ce| try aa.dupe(u8, ce) else "invalid sql",
 				.code = dproxy.val.INVALID_SQL,
 			});
 			return error.Validation;
-		}
+		},
+		else => return err,
 	};
 	defer stmt.deinit();
 
@@ -85,24 +84,23 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 		return error.Validation;
 	}
 
-	var rows = switch (stmt.execute(null)) {
-		.ok => |rows| rows,
-		.err => |err| {
-			defer err.deinit();
-			validator.addInvalidField(.{
+	var rows = stmt.execute(null) catch |err| switch (err) {
+		error.DuckDBError => {
+				validator.addInvalidField(.{
 				.field = "sql",
-				.err = try aa.dupe(u8, err.desc),
+				.err = if (conn.err) |ce| try aa.dupe(u8, ce) else "invalid sql",
 				.code = dproxy.val.INVALID_SQL,
 			});
 			return error.Validation;
-		}
+		},
+		else => return err,
 	};
 	defer rows.deinit();
 
 	res.content_type = .JSON;
 
 	// AFAIC, DuckDB's API is broken when trying to get the changed rows. There's
-	// a duckdb_rows_changed, but it really broken. You see, internally, an insert
+	// a duckdb_rows_changed, but it's really broken. You see, internally, an insert
 	// or update or delete stores the # of affected rows in the returned result.
 	// But this, of course, doesn't work when the statement includes a
 	// "returning...". So on insert/delete/update we can get a row back without
@@ -124,7 +122,7 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 		if (column_name[0] == 'C' and column_name[1] == 'o' and column_name[2] == 'u' and column_name[3] == 'n' and column_name[4] == 't' and column_name[5] == 0) {
 			var optional_count: ?i64 = 0;
 			if (try rows.next()) |row| {
-				optional_count = row.get(i64, 0);
+				optional_count = row.get(?i64, 0);
 			}
 			const count = optional_count orelse {
 				res.body = "{\"cols\":[\"Count\"],\"rows\":[[null]]}";
@@ -183,17 +181,19 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 
 fn translateRow(aa: Allocator, row: *const zuckdb.Row, parameter_types: []zuckdb.ParameterType, into: []typed.Value) !void {
 	for (parameter_types, 0..) |parameter_type, i| {
+		if (row.isNull(i)) {
+			into[i] = .{.null = {}};
+			continue;
+		}
+
 		into[i] = switch (parameter_type) {
 			.list => blk: {
-				var list = row.getList(i) orelse break :blk .{.null = {}};
-
+				var list = row.lazyList(i) orelse break :blk .{.null = {}};
 				var typed_list = typed.Array.init(aa);
 				try typed_list.ensureTotalCapacity(list.len);
-
 				for (0..list.len) |list_index| {
 					typed_list.appendAssumeCapacity(try translateScalar(aa, &list, list.type, list_index));
 				}
-
 				break :blk .{.array = typed_list};
 			},
 			else => try translateScalar(aa, row, parameter_type, i),
@@ -201,63 +201,62 @@ fn translateRow(aa: Allocator, row: *const zuckdb.Row, parameter_types: []zuckdb
 	}
 }
 
-// src can either be a *zuckdb.Row or a *zuckdb.List
+// src can either be a zuckdb.Row or a zuckdb.LazyList
 fn translateScalar(aa: Allocator, src: anytype, parameter_type: zuckdb.ParameterType, i: usize) !typed.Value {
-	switch (parameter_type) {
-		.varchar => if (src.get([]u8, i)) |v| return .{.string = v},
-		.blob => {
-			if (src.get([]u8, i)) |v| {
-				const encoder = std.base64.standard.Encoder;
-				const out = try aa.alloc(u8, encoder.calcSize(v.len));
-				return .{.string = encoder.encode(out, v)};
-			}
-		},
-		.bool => if (src.get(bool, i)) |v| return .{.bool = v},
-		.i8 => if (src.get(i8, i)) |v| return .{.i8 = v},
-		.i16 => if (src.get(i16, i)) |v| return .{.i16 = v},
-		.i32 => if (src.get(i32, i)) |v| return .{.i32 = v},
-		.i64 => if (src.get(i64, i)) |v| return .{.i64 = v},
-		.i128 => if (src.get(i128, i)) |v| return .{.i128 = v},
-		.u8 => if (src.get(u8, i)) |v| return .{.u8 = v},
-		.u16 => if (src.get(u16, i)) |v| return .{.u16 = v},
-		.u32 => if (src.get(u32, i)) |v| return .{.u32 = v},
-		.u64 => if (src.get(u64, i)) |v| return .{.u64 = v},
-		.f32 => if (src.get(f32, i)) |v| return .{.f32 = v},
-		.f64, .decimal => if (src.get(f64, i)) |v| return .{.f64 = v},
-		.uuid => if (src.get(zuckdb.UUID, i)) |v| return .{.string = try aa.dupe(u8, &v)},
-		.date => {
-			if (src.get(zuckdb.Date, i)) |date| {
-				return .{.date = .{
-					.year = @intCast(date.year),
-					.month = @intCast(date.month),
-					.day = @intCast(date.day),
-				}};
-			}
-		},
-		.time => {
-			if (src.get(zuckdb.Time, i)) |time| {
-				return .{.time = .{
-					.hour = @intCast(time.hour),
-					.min =  @intCast(time.min),
-					.sec =  @intCast(time.sec),
-				}};
-			}
-		},
-		.timestamp => if (src.get(i64, i)) |v| return .{.timestamp = .{.micros = v}},
-		.@"enum" => if (try src.getEnum(i)) |v| return .{.string = v},
-		.interval => {
-			if (src.get(zuckdb.Interval, i)) |interval| {
-				var map = typed.Map.init(aa);
-				try map.putAll(.{.months = interval.months, .days = interval.days, .micros = interval.micros});
-				return .{.map = map};
-			}
-		},
-		.bitstring => if (src.get([]u8, i)) |v| return .{.string = try zuckdb.bitToString(aa, v)},
-		else => return .{.string = try std.fmt.allocPrint(aa, "Cannot serialize: {any}", .{parameter_type})},
+	if (src.isNull(i)) {
+		return.{.null = {}};
 	}
 
-	return .{.null = {}};
+	switch (parameter_type) {
+		.varchar => return .{.string = src.get([]const u8, i)},
+		.blob => {
+			const v = src.get([]const u8, i);
+			const encoder = std.base64.standard.Encoder;
+			const out = try aa.alloc(u8, encoder.calcSize(v.len));
+			return .{.string = encoder.encode(out, v)};
+		},
+		.bool => return .{.bool = src.get(bool, i)},
+		.i8 => return .{.i8 = src.get(i8, i)},
+		.i16 => return .{.i16 = src.get(i16, i)},
+		.i32 => return .{.i32 = src.get(i32, i)},
+		.i64 => return .{.i64 = src.get(i64, i)},
+		.i128 => return .{.i128 = src.get(i128, i)},
+		.u8 => return .{.u8 = src.get(u8, i)},
+		.u16 => return .{.u16 = src.get(u16, i)},
+		.u32 => return .{.u32 = src.get(u32, i)},
+		.u64 => return .{.u64 = src.get(u64, i)},
+		.f32 => return .{.f32 = src.get(f32, i)},
+		.f64, .decimal => return .{.f64 = src.get(f64, i)},
+		.uuid => return .{.string = try aa.dupe(u8, &src.get(zuckdb.UUID, i))},
+		.date => {
+			const date = src.get(zuckdb.Date, i);
+			return .{.date = .{
+				.year = @intCast(date.year),
+				.month = @intCast(date.month),
+				.day = @intCast(date.day),
+			}};
+		},
+		.time => {
+			const time = src.get(zuckdb.Time, i);
+			return .{.time = .{
+				.hour = @intCast(time.hour),
+				.min =  @intCast(time.min),
+				.sec =  @intCast(time.sec),
+			}};
+		},
+		.timestamp => return .{.timestamp = .{.micros = src.get(i64, i)}},
+		.@"enum" => return .{.string = try src.get(zuckdb.Enum, i).rowCache()},
+		.interval => {
+			const interval = src.get(zuckdb.Interval, i);
+			var map = typed.Map.init(aa);
+			try map.putAll(.{.months = interval.months, .days = interval.days, .micros = interval.micros});
+			return .{.map = map};
+		},
+		.bitstring => return .{.string = try zuckdb.bitToString(aa, src.get([]u8, i))},
+		else => return .{.string = try std.fmt.allocPrint(aa, "Cannot serialize: {any}", .{parameter_type})},
+	}
 }
+
 
 fn serializeRow(row: []typed.Value, prefix: []const u8, sb: *zul.StringBuilder, writer: anytype) ![]const u8 {
 	sb.clearRetainingCapacity();
@@ -361,7 +360,8 @@ test "mutate: change with no result" {
 	try tc.web.expectJson(.{.cols = .{"Count"}, .rows = .{.{1}}});
 
 	const row = tc.getRow("select count(*) as count from everythings where col_varchar = 'insert no results'", .{}).?;
-	try t.expectEqual(1, row.get(i64, "count").?);
+	defer row.deinit();
+	try t.expectEqual(1, row.get(i64, 0));
 }
 
 test "mutate: every type" {

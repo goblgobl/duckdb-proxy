@@ -15,15 +15,13 @@ pub const version = @embedFile("version.txt");
 
 // Log DuckDB error.
 const logz = @import("logz");
-pub fn duckdbError(ctx: []const u8, err: anytype, logger: logz.Logger) error{DuckDBError, ReadOnly} {
-	defer err.deinit();
-
+pub fn duckdbError(ctx: []const u8, err: []const u8, logger: logz.Logger) error{DuckDBError, ReadOnly} {
 	// DuckDB only exposes error strings, so here we are.
-	if (std.mem.endsWith(u8, err.desc, "read-only mode!")) {
+	if (std.mem.endsWith(u8, err, "read-only mode!")) {
 		return error.ReadOnly;
 	}
 
-	logger.level(.Error).ctx(ctx).boolean("duckdb", true).err(err.err).string("desc", err.desc).log();
+	logger.level(.Error).ctx(ctx).boolean("duckdb", true).string("err", err).string("desc", err).log();
 	return error.DuckDBError;
 }
 

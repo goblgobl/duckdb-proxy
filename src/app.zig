@@ -25,16 +25,17 @@ pub const App = struct {
 			.enable_external_access = db_config.external_access,
 		};
 
-		const db = switch (zuckdb.DB.init(allocator, db_config.path, zuckdb_config)) {
-			.ok => |db| db,
-			.err => |err| return dproxy.duckdbError("db.init", err, logz.err().string("path", db_config.path)),
+		var open_err: ?[]u8 = null;
+		const db = zuckdb.DB.initWithErr(allocator, db_config.path, zuckdb_config, &open_err) catch |err| {
+			if (err == error.OpenDB) {
+				defer allocator.free(open_err.?);
+				return dproxy.duckdbError("db.init", open_err.?, logz.err().string("path", db_config.path));
+			}
+			return err;
 		};
 		errdefer db.deinit();
 
-		var dbs = switch (zuckdb.Pool.init(db, .{.size = db_config.pool_size})) {
-			.ok => |pool| pool,
-			.err => |err| return dproxy.duckdbError("pool.init", err, logz.err().string("path", db_config.path)),
-		};
+		var dbs = try zuckdb.Pool.init(db, .{.size = db_config.pool_size});
 		errdefer dbs.deinit();
 
 		var max_limit: ?[]const u8 = null;
