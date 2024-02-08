@@ -36,7 +36,6 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 
 	const stdout = std.io.getStdOut().writer();
 
-
 	if (args.contains("version") or args.contains("v")) {
 		try stdout.print(dproxy.version, .{});
 		std.os.exit(0);
@@ -102,7 +101,6 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 		};
 	}
 
-
 	if (args.get("cors_origin")) |value| {
 		cors = .{
 			.origin = try allocator.dupe(u8, value),
@@ -131,7 +129,7 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 
 	return .{
 		.db = .{
-			.path = if (args.get("DB_PATH")) |v| try allocator.dupeZ(u8, v) else "db.duckdb",
+			.path = if (args.tail.len == 1) try allocator.dupeZ(u8, args.tail[0]) else "db.duckdb",
 			.pool_size = pool_size,
 			.readonly = args.contains("readonly"),
 			.external_access = args.contains("external_access")
