@@ -4,7 +4,7 @@ permissions:
   contents: write
 
 env:
-  DUCKDB_VERSION: 0.9.2
+  DUCKDB_VERSION: 0.10.0
 
 on:
   push:
