@@ -6,7 +6,10 @@ permissions:
 env:
   DUCKDB_VERSION: 1.0.0
 
-on: [push]
+on:
+  push:
+    tags:
+      - "v*.*.*"
 
 jobs:
   release:
