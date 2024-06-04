@@ -1,6 +1,7 @@
 .DS_Store
-lib/
 zig-out/
 .zig-cache/
 db.duckdb*
 tests/db.duckdb*
+duckdb.h
+libduckdb.dylib
