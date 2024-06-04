@@ -5,4 +5,4 @@ t:
 
 .PHONY: s
 s:
-	zig build run -freference-trace
+	zig build run

@@ -173,7 +173,7 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 
 		var row_count: usize = 1;
 		while (try rows.next()) |row| {
-			buf.writeAssumeCapacity("],\n  [");
+			try buf.write("],\n  [");
 			try writeRow(arena, &row, buf, vectors, logger);
 			if (@mod(row_count, 50) == 0) {
 				try res.chunk(buf.string());
