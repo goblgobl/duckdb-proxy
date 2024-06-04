@@ -1,6 +1,5 @@
 const std = @import("std");
 
-const LazyPath = std.Build.LazyPath;
 const ModuleMap = std.StringArrayHashMap(*std.Build.Module);
 
 pub fn build(b: *std.Build) !void {
@@ -23,17 +22,17 @@ pub fn build(b: *std.Build) !void {
 	try modules.put("validate", b.dependency("validate", dep_opts).module("validate"));
 
 	const zuckdb = b.dependency("zuckdb", dep_opts).module("zuckdb");
-	zuckdb.addIncludePath(LazyPath.relative("lib"));
+	zuckdb.addIncludePath(b.path("lib"));
 	try modules.put("zuckdb",  zuckdb);
 
 	// setup executable
 	const exe = b.addExecutable(.{
 		.name = "duckdb-proxy",
-		.root_source_file = .{ .path = "src/main.zig" },
+		.root_source_file = b.path("src/main.zig"),
 		.target = target,
 		.optimize = optimize,
 	});
-	try addLibs(exe, modules);
+	try addLibs(b, exe, modules);
 	b.installArtifact(exe);
 
 	const run_cmd = b.addRunArtifact(exe);
@@ -47,12 +46,13 @@ pub fn build(b: *std.Build) !void {
 	run_step.dependOn(&run_cmd.step);
 
 	const tests = b.addTest(.{
-		.root_source_file = .{ .path = "src/main.zig" },
+		.root_source_file = b.path("src/main.zig"),
 		.target = target,
 		.optimize = optimize,
+		.test_runner = b.path("test_runner.zig"),
 	});
 
-	try addLibs(tests, modules);
+	try addLibs(b, tests, modules);
 	const run_test = b.addRunArtifact(tests);
 	run_test.has_side_effects = true;
 
@@ -60,7 +60,7 @@ pub fn build(b: *std.Build) !void {
 	test_step.dependOn(&run_test.step);
 }
 
-fn addLibs(step: *std.Build.Step.Compile, modules: ModuleMap) !void {
+fn addLibs(b: *std.Build, step: *std.Build.Step.Compile, modules: ModuleMap) !void {
 	var it = modules.iterator();
 	while (it.next()) |m| {
 		step.root_module.addImport(m.key_ptr.*, m.value_ptr.*);
@@ -68,6 +68,6 @@ fn addLibs(step: *std.Build.Step.Compile, modules: ModuleMap) !void {
 
 	step.linkLibC();
 	step.linkSystemLibrary("duckdb");
-	step.addRPath(LazyPath.relative("lib"));
-	step.addLibraryPath(LazyPath.relative("lib"));
+	step.addRPath(b.path("lib"));
+	step.addLibraryPath(b.path("lib"));
 }

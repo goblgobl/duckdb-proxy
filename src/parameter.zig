@@ -11,168 +11,168 @@ pub const Parameter = struct {
 	// streamline a lot of code.
 	pub fn validateAndBind(aa: Allocator, index: usize, stmt: zuckdb.Stmt, value: typed.Value, validator: *validate.Context(void)) !void {
 		if (std.meta.activeTag(value) == typed.Value.null) {
-			return stmt.bindValue(index, null);
+			return stmt.bindValue(null, index);
 		}
 
 		// for the "field" of the error message
 		validator.field = null;
 		validator.force_prefix = try fieldName(aa, index);
-		switch (stmt.parameterType(index)) {
-			.bool => {
+		switch (stmt.dataType(index)) {
+			.boolean => {
 				switch (try bool_validator.validateValue(value, validator)) {
-					.bool => |v| return stmt.bindValue(index, v),
-					else => return stmt.bindValue(index, null),
+					.bool => |v| return stmt.bindValue(v, index),
+					else => return stmt.bindValue(null, index),
 				}
 			},
 			.uuid => {
 				switch (try uuid_validator.validateValue(value, validator)) {
-					.string => |v| return stmt.bindValue(index, v),
-					else => return stmt.bindValue(index, null),
+					.string => |v| return stmt.bindValue(v, index),
+					else => return stmt.bindValue(null, index),
 				}
 			},
-			.i8 => {
+			.tinyint => {
 				switch (try i8_validator.validateValue(value, validator)) {
-					.i8 => |v| return stmt.bindValue(index, v),
-					else => return stmt.bindValue(index, null),
+					.i8 => |v| return stmt.bindValue(v, index),
+					else => return stmt.bindValue(null, index),
 				}
 			},
-			.i16 => {
+			.smallint => {
 				switch (try i16_validator.validateValue(value, validator)) {
-					.i16 => |v| return stmt.bindValue(index, v),
-					else => return stmt.bindValue(index, null),
+					.i16 => |v| return stmt.bindValue(v, index),
+					else => return stmt.bindValue(null, index),
 				}
 			},
-			.i32 => {
+			.integer => {
 				switch (try i32_validator.validateValue(value, validator)) {
-					.i32 => |v| return stmt.bindValue(index, v),
-					else => return stmt.bindValue(index, null),
+					.i32 => |v| return stmt.bindValue(v, index),
+					else => return stmt.bindValue(null, index),
 				}
 			},
-			.i64 => {
+			.bigint => {
 				switch (try i64_validator.validateValue(value, validator)) {
-					.i64 => |v| return stmt.bindValue(index, v),
-					else => return stmt.bindValue(index, null),
+					.i64 => |v| return stmt.bindValue(v, index),
+					else => return stmt.bindValue(null, index),
 				}
 			},
-			.i128 => {
+			.hugeint => {
 				switch (try i128_validator.validateValue(value, validator)) {
-					.i128 => |v| return stmt.bindValue(index, v),
-					else => return stmt.bindValue(index, null),
+					.i128 => |v| return stmt.bindValue(v, index),
+					else => return stmt.bindValue(null, index),
 				}
 			},
-			.u8 => {
+			.utinyint => {
 				switch (try u8_validator.validateValue(value, validator)) {
-					.u8 => |v| return stmt.bindValue(index, v),
-					else => return stmt.bindValue(index, null),
+					.u8 => |v| return stmt.bindValue(v, index),
+					else => return stmt.bindValue(null, index),
 				}
 			},
-			.u16 => {
+			.usmallint => {
 				switch (try u16_validator.validateValue(value, validator)) {
-					.u16 => |v| return stmt.bindValue(index, v),
-					else => return stmt.bindValue(index, null),
+					.u16 => |v| return stmt.bindValue(v, index),
+					else => return stmt.bindValue(null, index),
 				}
 			},
-			.u32 => {
+			.uinteger => {
 				switch (try u32_validator.validateValue(value, validator)) {
-					.u32 => |v| return stmt.bindValue(index, v),
-					else => return stmt.bindValue(index, null),
+					.u32 => |v| return stmt.bindValue(v, index),
+					else => return stmt.bindValue(null, index),
 				}
 			},
-			.u64 => {
+			.ubigint => {
 				switch (try u64_validator.validateValue(value, validator)) {
-					.u64 => |v| return stmt.bindValue(index, v),
-					else => return stmt.bindValue(index, null),
+					.u64 => |v| return stmt.bindValue(v, index),
+					else => return stmt.bindValue(null, index),
 				}
 			},
-			.f32 => {
+			.real => {
 				switch (try f32_validator.validateValue(value, validator)) {
-					.f32 => |v| return stmt.bindValue(index, v),
-					else => return stmt.bindValue(index, null),
+					.f32 => |v| return stmt.bindValue(v, index),
+					else => return stmt.bindValue(null, index),
 				}
 			},
-			.f64 => {
+			.double => {
 				switch (try f64_validator.validateValue(value, validator)) {
-					.f64 => |v| return stmt.bindValue(index, v),
-					else => return stmt.bindValue(index, null),
+					.f64 => |v| return stmt.bindValue(v, index),
+					else => return stmt.bindValue(null, index),
 				}
 			},
 			.decimal => {
 				switch (try f64_validator.validateValue(value, validator)) {
-					.f64 => |v| return stmt.bindValue(index, v),
-					else => return stmt.bindValue(index, null),
+					.f64 => |v| return stmt.bindValue(v, index),
+					else => return stmt.bindValue(null, index),
 				}
 			},
-			.timestamp => {
+			.timestamp, .timestamptz => {
 				switch (try i64_validator.validateValue(value, validator)) {
-					.i64 => |v| return stmt.bindValue(index, v),
-					else => return stmt.bindValue(index, null),
+					.i64 => |v| return stmt.bindValue(v, index),
+					else => return stmt.bindValue(null, index),
 				}
 			},
 			.varchar => {
 				switch (try string_validator.validateValue(value, validator)) {
-					.string => |v| return stmt.bindValue(index, v),
-					else => return stmt.bindValue(index, null),
+					.string => |v| return stmt.bindValue(v, index),
+					else => return stmt.bindValue(null, index),
 				}
 			},
 			.blob => {
 				switch (try blob_validator.validateValue(value, validator)) {
-					.string => |v| return stmt.bindValue(index, v),
-					else => return stmt.bindValue(index, null),
+					.string => |v| return stmt.bindValue(v, index),
+					else => return stmt.bindValue(null, index),
 				}
 			},
-			.bitstring => {
+			.bit => {
 				switch (try bitstring_validator.validateValue(value, validator)) {
-					.string => |v| return stmt.bindValue(index, v),
-					else => return stmt.bindValue(index, null),
+					.string => |v| return stmt.bindValue(v, index),
+					else => return stmt.bindValue(null, index),
 				}
 			},
 			.date => {
 				switch (try date_validator.validateValue(value, validator)) {
 					.date => |v| {
-						return stmt.bindValue(index, zuckdb.Date{
+						return stmt.bindValue(zuckdb.Date{
 							.year = v.year,
 							.month = @intCast(v.month),
 							.day = @intCast(v.day),
-						});
+						}, index);
 					},
-					else => return stmt.bindValue(index, null),
+					else => return stmt.bindValue(null, index),
 				}
 			},
 			.time => {
 				switch (try time_validator.validateValue(value, validator)) {
 					.time => |v| {
-						return stmt.bindValue(index, zuckdb.Time{
+						return stmt.bindValue(zuckdb.Time{
 							.hour = @intCast(v.hour),
 							.min = @intCast(v.min),
 							.sec = @intCast(v.sec),
 							.micros = @intCast(v.micros),
-						});
+						}, index);
 					},
-					else => return stmt.bindValue(index, null),
+					else => return stmt.bindValue(null, index),
 				}
 			},
 			.@"enum" => {
 				switch (try string_validator.validateValue(value, validator)) {
-					.string => |v| return stmt.bindValue(index, v),
-					else => return stmt.bindValue(index, null),
+					.string => |v| return stmt.bindValue(v, index),
+					else => return stmt.bindValue(null, index),
 				}
 			},
 			.interval => {
 				switch (value) {
 					.string => {  // can either be a string, e.g. "4 hours"
 						switch (try string_validator.validateValue(value, validator)) {
-							.string => |v| return stmt.bindValue(index, v),
-							else => return stmt.bindValue(index, null),
+							.string => |v| return stmt.bindValue(v, index),
+							else => return stmt.bindValue(null, index),
 						}
 					},
 					else => { // or an object {months: X, days: Y, micros: Z}
 						switch (try interval_validator.validateValue(value, validator)) {
-							.map => |v| return stmt.bindValue(index, zuckdb.Interval{
-								.months = v.get(i32, "months") orelse unreachable,
-								.days = v.get(i32, "days") orelse unreachable,
-								.micros = v.get(i64, "micros") orelse unreachable,
-							}),
-							else => return stmt.bindValue(index, null),
+							.map => |v| return stmt.bindValue(zuckdb.Interval{
+								.months = v.get("months").?.i32,
+								.days = v.get("days").?.i32,
+								.micros = v.get("micros").?.i64,
+							}, index),
+							else => return stmt.bindValue(null, index),
 						}
 					}
 				}

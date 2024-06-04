@@ -13,9 +13,9 @@ pub const App = struct {
 	log_http: bool,
 	with_wrap: bool,
 	max_limit: ?[]const u8,
-	dbs: zuckdb.Pool,
+	dbs: *zuckdb.Pool,
 	allocator: Allocator,
-	buffer_pool: BufferPool,
+	buffer_pool: *BufferPool,
 	validators: validate.Pool(void),
 
 	pub fn init(allocator: Allocator, config: Config) !App {

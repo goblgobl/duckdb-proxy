@@ -13,7 +13,7 @@ pub fn main() !void {
 	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 	const allocator = gpa.allocator();
 
-	const config = (try parseArgs(allocator)) orelse std.os.exit(1);
+	const config = (try parseArgs(allocator)) orelse std.process.exit(1);
 
 	try logz.setup(allocator, config.logger);
 	logz.info().ctx("Log.setup").
@@ -38,7 +38,7 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 
 	if (args.contains("version") or args.contains("v")) {
 		try stdout.print(dproxy.version, .{});
-		std.os.exit(0);
+		std.process.exit(0);
 	}
 
 	if (args.contains("help") or args.contains("h")) {
@@ -57,7 +57,7 @@ fn parseArgs(allocator: Allocator) !?dproxy.Config {
 		try stdout.print("  --log_http\n\tLog http request lines, works independently of log_level\n\n", .{});
 		try stdout.print("  --cors_origin <ORIGIN>\n\tEnables CORS response headers using the specified origin\n\n", .{});
 		try stdout.print("  -v, --version\n\tPrint the version and exit\n\n", .{});
-		std.os.exit(0);
+		std.process.exit(0);
 	}
 
 	var pool_size: u16 = 50;

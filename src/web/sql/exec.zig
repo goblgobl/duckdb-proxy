@@ -1,5 +1,6 @@
 const std = @import("std");
 const zul = @import("zul");
+const logz = @import("logz");
 const httpz = @import("httpz");
 const typed = @import("typed");
 const zuckdb = @import("zuckdb");
@@ -29,8 +30,8 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 	const input = try base.web.validateBody(env, req, exec_validator);
 
 	const aa = res.arena;
-	const sql = input.get([]u8, "sql").?;
-	const params = if (input.get(typed.Array, "params")) |p| p.items else &[_]typed.Value{};
+	const sql = input.get("sql").?.string;
+	const params = if (input.get("params")) |p| p.array.items else &[_]typed.Value{};
 
 	var validator = env.validator;
 
@@ -38,21 +39,21 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 
 	// The zuckdb library is going to dupeZ the SQL to get a null-terminated string
 	// We might as well do this with our arena allocator.
-	var sb = try app.buffer_pool.acquire();
-	defer app.buffer_pool.release(sb);
+	var buf = try app.buffer_pool.acquire();
+	defer buf.release();
 
 	const sql_string = switch (app.with_wrap) {
 		false => sql,
 		true => blk: {
-			try sb.ensureTotalCapacity(sql.len + 50);
-			sb.writeAssumeCapacity("with _dproxy as (");
+			try buf.ensureTotalCapacity(sql.len + 50);
+			buf.writeAssumeCapacity("with _dproxy as (");
 			// if we're wrapping, we need to strip any trailing ; to keep it a valid SQL
-			sb.writeAssumeCapacity(stripTrailingSemicolon(sql));
-			sb.writeAssumeCapacity(") select * from _dproxy");
+			buf.writeAssumeCapacity(stripTrailingSemicolon(sql));
+			buf.writeAssumeCapacity(") select * from _dproxy");
 			if (app.max_limit) |l| {
-				sb.writeAssumeCapacity(l);
+				buf.writeAssumeCapacity(l);
 			}
-			break :blk sb.string();
+			break :blk buf.string();
 		},
 	};
 
@@ -84,7 +85,7 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 		return error.Validation;
 	}
 
-	var rows = stmt.execute(null) catch |err| switch (err) {
+	var rows = stmt.query(null) catch |err| switch (err) {
 		error.DuckDBError => {
 				validator.addInvalidField(.{
 				.field = "sql",
@@ -116,7 +117,7 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 	// insert/update/delete without a "returning". It's still ambiguous: maybe
 	// the statement had "returning Count"; - we can't tell. But it doesn't matter
 	// even if it IS a returning, it'll be handled the same way
-	if (rows.column_count == 1 and rows.column_types[0] == 5 and rows.count() == 1) {
+	if (isSingleI64Result(&rows) == true) {
 		const column_name = rows.columnName(0);
 		// column_name is a [*c]const u8, hence this unlooped comparison
 		if (column_name[0] == 'C' and column_name[1] == 'o' and column_name[2] == 'u' and column_name[3] == 'n' and column_name[4] == 't' and column_name[5] == 0) {
@@ -142,121 +143,181 @@ pub fn handler(env: *Env, req: *httpz.Request, res: *httpz.Response) !void {
 		}
 	}
 
-	var column_types = try aa.alloc(zuckdb.ParameterType, rows.column_count);
-	for (0..column_types.len) |i| {
-		column_types[i] = rows.columnType(i);
-	}
+	const logger = env.logger;
 
-	sb.clearRetainingCapacity();
-	const writer = sb.writer();
-
-	const typed_row = try aa.alloc(typed.Value, column_types.len);
-
-	// write our preamble
-	try sb.write("{\n \"cols\": [");
-	for (0..column_types.len) |i| {
+	res.content_type = .JSON;
+	buf.clearRetainingCapacity();
+	const writer = buf.writer();
+	const vectors = rows.vectors;
+	try buf.write("{\n \"cols\": [");
+	for (0..vectors.len) |i| {
 		try std.json.encodeJsonString(std.mem.span(rows.columnName(i)), .{}, writer);
-		try sb.writeByte(',');
+		try buf.writeByte(',');
 	}
 	// strip out the last comma
-	sb.truncate(1);
-	try sb.write("],\n \"rows\": [");
-	try res.chunk(sb.string());
+	buf.truncate(1);
+	try buf.write("],\n \"types\": [");
 
-	var row_count: usize = 0;
-	if (try rows.next()) |row| {
-		try translateRow(aa, &row, column_types, typed_row);
-		try res.chunk(try serializeRow(typed_row, "\n   ", sb, writer));
-		row_count = 1;
+	for (vectors) |*vector| {
+		try buf.writeByte('"');
+		try vector.writeType(writer);
+		try buf.write("\",");
 	}
-	// convert each result row into a []typed.Value (which we can JSON serialize)
-	while (try rows.next()) |row| {
-		try translateRow(aa, &row, column_types, typed_row);
-		try res.chunk(try serializeRow(typed_row, ",\n   ", sb, writer));
-		row_count += 1;
-	}
+	buf.truncate(1);
 
-	try res.chunk("\n ]\n}");
+	const arena = res.arena;
+	try buf.write("],\n \"rows\": [");
+	if (try rows.next()) |first_row| {
+		try buf.write("\n  [");
+		try writeRow(arena, &first_row, buf, vectors, logger);
+
+		var row_count: usize = 1;
+		while (try rows.next()) |row| {
+			buf.writeAssumeCapacity("],\n  [");
+			try writeRow(arena, &row, buf, vectors, logger);
+			if (@mod(row_count, 50) == 0) {
+				try res.chunk(buf.string());
+				buf.clearRetainingCapacity();
+			}
+			row_count += 1;
+		}
+		try buf.writeByte(']');
+	}
+	try buf.write("\n]\n}");
+	try res.chunk(buf.string());
 }
 
-fn translateRow(aa: Allocator, row: *const zuckdb.Row, parameter_types: []zuckdb.ParameterType, into: []typed.Value) !void {
-	for (parameter_types, 0..) |parameter_type, i| {
-		if (row.isNull(i)) {
-			into[i] = .{.null = {}};
-			continue;
-		}
+fn writeRow(allocator: Allocator, row: *const zuckdb.Row, buf: *zul.StringBuilder, vectors: []zuckdb.Vector, logger: logz.Logger) !void {
+	const writer = buf.writer();
 
-		into[i] = switch (parameter_type) {
-			.list => blk: {
-				var list = row.lazyList(i) orelse break :blk .{.null = {}};
-				var typed_list = typed.Array.init(aa);
-				try typed_list.ensureTotalCapacity(list.len);
-				for (0..list.len) |list_index| {
-					typed_list.appendAssumeCapacity(try translateScalar(aa, &list, list.type, list_index));
+	for (vectors, 0..) |*vector, i| {
+		switch (vector.type) {
+			.list => |list_vector| {
+				const list = row.lazyList(i) orelse {
+					try buf.write("null,");
+					continue;
+				};
+				if (list.len == 0) {
+					try buf.write("[],");
+					continue;
 				}
-				break :blk .{.array = typed_list};
+
+				const child_type = list_vector.child;
+				try buf.writeByte('[');
+				for (0..list.len) |list_index| {
+					try translateScalar(allocator, &list, child_type, list_index, writer, logger);
+					try buf.writeByte(',');
+				}
+				// overwrite the last trailing comma
+				buf.truncate(1);
+				try buf.write("],");
 			},
-			else => try translateScalar(aa, row, parameter_type, i),
-		};
+			.scalar => |s| {
+				try translateScalar(allocator, row, s, i, writer, logger);
+				try buf.writeByte(',');
+			}
+		}
 	}
+	// overwrite the last trailing comma
+	buf.truncate(1);
 }
 
 // src can either be a zuckdb.Row or a zuckdb.LazyList
-fn translateScalar(aa: Allocator, src: anytype, parameter_type: zuckdb.ParameterType, i: usize) !typed.Value {
+fn translateScalar(allocator: Allocator, src: anytype, column_type: zuckdb.Vector.Type.Scalar, i: usize, writer: anytype, logger: logz.Logger) !void {
 	if (src.isNull(i)) {
-		return.{.null = {}};
+		return writer.writeAll("null");
 	}
 
-	switch (parameter_type) {
-		.varchar => return .{.string = src.get([]const u8, i)},
-		.blob => {
-			const v = src.get([]const u8, i);
-			const encoder = std.base64.standard.Encoder;
-			const out = try aa.alloc(u8, encoder.calcSize(v.len));
-			return .{.string = encoder.encode(out, v)};
+	switch (column_type) {
+		.decimal => try std.fmt.format(writer, "{d}", .{src.get(f64, i)}),
+		.@"enum" => try std.json.encodeJsonString(try src.get(zuckdb.Enum, i).rowCache(), .{}, writer),
+		.simple => |s| switch (s) {
+			zuckdb.c.DUCKDB_TYPE_VARCHAR => try std.json.encodeJsonString(src.get([]const u8, i), .{}, writer),
+			zuckdb.c.DUCKDB_TYPE_BOOLEAN => try writer.writeAll(if (src.get(bool, i)) "true" else "false"),
+			zuckdb.c.DUCKDB_TYPE_TINYINT => try std.fmt.formatInt(src.get(i8, i), 10, .lower, .{}, writer),
+			zuckdb.c.DUCKDB_TYPE_SMALLINT => try std.fmt.formatInt(src.get(i16, i), 10, .lower, .{}, writer),
+			zuckdb.c.DUCKDB_TYPE_INTEGER => try std.fmt.formatInt(src.get(i32, i), 10, .lower, .{}, writer),
+			zuckdb.c.DUCKDB_TYPE_BIGINT => try std.fmt.formatInt(src.get(i64, i), 10, .lower, .{}, writer),
+			zuckdb.c.DUCKDB_TYPE_HUGEINT => try std.fmt.formatInt(src.get(i128, i), 10, .lower, .{}, writer),
+			zuckdb.c.DUCKDB_TYPE_UTINYINT => try std.fmt.formatInt(src.get(u8, i), 10, .lower, .{}, writer),
+			zuckdb.c.DUCKDB_TYPE_USMALLINT => try std.fmt.formatInt(src.get(u16, i), 10, .lower, .{}, writer),
+			zuckdb.c.DUCKDB_TYPE_UINTEGER => try std.fmt.formatInt(src.get(u32, i), 10, .lower, .{}, writer),
+			zuckdb.c.DUCKDB_TYPE_UBIGINT => try std.fmt.formatInt(src.get(u64, i), 10, .lower, .{}, writer),
+			zuckdb.c.DUCKDB_TYPE_UHUGEINT => try std.fmt.formatInt(src.get(u128, i), 10, .lower, .{}, writer),
+			zuckdb.c.DUCKDB_TYPE_FLOAT => try std.fmt.format(writer, "{d}", .{src.get(f32, i)}),
+			zuckdb.c.DUCKDB_TYPE_DOUBLE => try std.fmt.format(writer, "{d}", .{src.get(f64, i)}),
+			zuckdb.c.DUCKDB_TYPE_UUID => try std.json.encodeJsonString(&src.get(zuckdb.UUID, i), .{}, writer),
+			zuckdb.c.DUCKDB_TYPE_DATE => {
+				// std.fmt's integer formatting is broken when dealing with signed integers
+				// we use our own formatter
+				// https://github.com/ziglang/zig/issues/19488
+				const date = src.get(zuckdb.Date, i);
+				try std.fmt.format(writer, "\"{d}-{s}-{s}\"", .{date.year, paddingTwoDigits(date.month), paddingTwoDigits(date.day)});
+			},
+			zuckdb.c.DUCKDB_TYPE_TIME => {
+				// std.fmt's integer formatting is broken when dealing with signed integers
+				// we use our own formatter. But for micros, I'm lazy and cast it to unsigned,
+				// which std.fmt handles better.
+				const time = src.get(zuckdb.Time, i);
+				try std.fmt.format(writer, "\"{s}:{s}:{s}.{d:6>0}\"", .{paddingTwoDigits(time.hour), paddingTwoDigits(time.min), paddingTwoDigits(time.sec), @as(u32, @intCast(time.micros))});
+			},
+			zuckdb.c.DUCKDB_TYPE_TIMESTAMP, zuckdb.c.DUCKDB_TYPE_TIMESTAMP_TZ  => try std.fmt.formatInt(src.get(i64, i), 10, .lower, .{}, writer),
+			zuckdb.c.DUCKDB_TYPE_INTERVAL => {
+				const interval = src.get(zuckdb.Interval, i);
+				try std.fmt.format(writer, "{{\"months\":{d},\"days\":{d},\"micros\":{d}}}", .{interval.months, interval.days, interval.micros});
+			},
+			zuckdb.c.DUCKDB_TYPE_BIT => try std.json.encodeJsonString(try zuckdb.bitToString(allocator, src.get([]u8, i)), .{}, writer),
+			zuckdb.c.DUCKDB_TYPE_BLOB => {
+				const v = src.get([]const u8, i);
+				const encoder = std.base64.standard.Encoder;
+				const out = try allocator.alloc(u8, encoder.calcSize(v.len));
+				try std.json.encodeJsonString(encoder.encode(out, v), .{}, writer);
+			},
+			else => |duckdb_type| {
+				try writer.writeAll("\"???\"");
+				logger.level(.Warn).ctx("serialize.unknown_type").int("duckdb_type", duckdb_type).log();
+			}
 		},
-		.bool => return .{.bool = src.get(bool, i)},
-		.i8 => return .{.i8 = src.get(i8, i)},
-		.i16 => return .{.i16 = src.get(i16, i)},
-		.i32 => return .{.i32 = src.get(i32, i)},
-		.i64 => return .{.i64 = src.get(i64, i)},
-		.i128 => return .{.i128 = src.get(i128, i)},
-		.u8 => return .{.u8 = src.get(u8, i)},
-		.u16 => return .{.u16 = src.get(u16, i)},
-		.u32 => return .{.u32 = src.get(u32, i)},
-		.u64 => return .{.u64 = src.get(u64, i)},
-		.f32 => return .{.f32 = src.get(f32, i)},
-		.f64, .decimal => return .{.f64 = src.get(f64, i)},
-		.uuid => return .{.string = try aa.dupe(u8, &src.get(zuckdb.UUID, i))},
-		.date => {
-			const date = src.get(zuckdb.Date, i);
-			return .{.date = .{
-				.year = @intCast(date.year),
-				.month = @intCast(date.month),
-				.day = @intCast(date.day),
-			}};
-		},
-		.time => {
-			const time = src.get(zuckdb.Time, i);
-			return .{.time = .{
-				.hour = @intCast(time.hour),
-				.min =  @intCast(time.min),
-				.sec =  @intCast(time.sec),
-			}};
-		},
-		.timestamp => return .{.timestamp = .{.micros = src.get(i64, i)}},
-		.@"enum" => return .{.string = try src.get(zuckdb.Enum, i).rowCache()},
-		.interval => {
-			const interval = src.get(zuckdb.Interval, i);
-			var map = typed.Map.init(aa);
-			try map.putAll(.{.months = interval.months, .days = interval.days, .micros = interval.micros});
-			return .{.map = map};
-		},
-		.bitstring => return .{.string = try zuckdb.bitToString(aa, src.get([]u8, i))},
-		else => return .{.string = try std.fmt.allocPrint(aa, "Cannot serialize: {any}", .{parameter_type})},
 	}
 }
 
+fn writeVarcharType(result: *zuckdb.c.duckdb_result, column_index: usize, buf: *zul.StringBuilder) !void {
+	var logical_type = zuckdb.c.duckdb_column_logical_type(result, column_index);
+	defer zuckdb.c.duckdb_destroy_logical_type(&logical_type);
+	const alias = zuckdb.c.duckdb_logical_type_get_alias(logical_type);
+	if (alias == null) {
+		return buf.write("varchar");
+	}
+	defer zuckdb.c.duckdb_free(alias);
+	return buf.write(std.mem.span(alias));
+}
+
+fn paddingTwoDigits(value: i8) [2]u8 {
+	std.debug.assert(value < 61 and value > 0);
+	const digits = "0001020304050607080910111213141516171819" ++
+		"2021222324252627282930313233343536373839" ++
+		"4041424344454647484950515253545556575859" ++
+		"60";
+	const index: usize = @intCast(value);
+	return digits[index * 2 ..][0..2].*;
+}
+
+fn isSingleI64Result(rows: *const zuckdb.Rows) bool {
+	if (rows.column_count != 1) {
+		return false;
+	}
+	if (rows.count() != 1) {
+		return false;
+	}
+
+	switch (rows.vectors[0].type) {
+		.scalar => |s| switch (s) {
+			.simple => |duckdb_type| return duckdb_type == zuckdb.c.DUCKDB_TYPE_BIGINT,
+			else => return false,
+		},
+		else => return false,
+	}
+}
 
 fn serializeRow(row: []typed.Value, prefix: []const u8, sb: *zul.StringBuilder, writer: anytype) ![]const u8 {
 	sb.clearRetainingCapacity();
@@ -278,7 +339,7 @@ fn stripTrailingSemicolon(sql: []const u8) []const u8 {
 }
 
 const t = dproxy.testing;
-test "mutate: invalid json body" {
+test "exec: invalid json body" {
 	var tc = t.context(.{});
 	defer tc.deinit();
 
@@ -286,7 +347,7 @@ test "mutate: invalid json body" {
 	try t.expectError(error.InvalidJson, handler(tc.env, tc.web.req, tc.web.res));
 }
 
-test "mutate: invalid input" {
+test "exec: invalid input" {
 	var tc = t.context(.{});
 	defer tc.deinit();
 
@@ -296,7 +357,7 @@ test "mutate: invalid input" {
 	try tc.expectInvalid(.{.code = validate.codes.TYPE_ARRAY, .field = "params"});
 }
 
-test "mutate: invalid sql" {
+test "exec: invalid sql" {
 	var tc = t.context(.{});
 	defer tc.deinit();
 
@@ -305,7 +366,7 @@ test "mutate: invalid sql" {
 	try tc.expectInvalid(.{.code = dproxy.val.INVALID_SQL, .field = "sql", .err = "Parser Error: syntax error at end of input"});
 }
 
-test "mutate: wrong parameters" {
+test "exec: wrong parameters" {
 	var tc = t.context(.{});
 	defer tc.deinit();
 
@@ -324,7 +385,7 @@ test "mutate: wrong parameters" {
 	}
 }
 
-test "mutate: invalid parameter value" {
+test "exec: invalid parameter value" {
 	var tc = t.context(.{});
 	defer tc.deinit();
 
@@ -333,7 +394,7 @@ test "mutate: invalid parameter value" {
 	try tc.expectInvalid(.{.code = validate.codes.TYPE_BOOL, .field = "params.0"});
 }
 
-test "mutate: invalid base64 for blog" {
+test "exec: invalid base64 for blog" {
 	var tc = t.context(.{});
 	defer tc.deinit();
 
@@ -342,7 +403,7 @@ test "mutate: invalid base64 for blog" {
 	try tc.expectInvalid(.{.code = validate.codes.STRING_BASE64, .field = "params.0"});
 }
 
-test "mutate: no changes" {
+test "exec: no changes" {
 	var tc = t.context(.{});
 	defer tc.deinit();
 
@@ -351,7 +412,7 @@ test "mutate: no changes" {
 	try tc.web.expectJson(.{.cols = .{"Count"}, .rows = .{.{0}}});
 }
 
-test "mutate: change with no result" {
+test "exec: change with no result" {
 	var tc = t.context(.{});
 	defer tc.deinit();
 
@@ -364,7 +425,7 @@ test "mutate: change with no result" {
 	try t.expectEqual(1, row.get(i64, 0));
 }
 
-test "mutate: every type" {
+test "exec: every type" {
 	var tc = t.context(.{});
 	defer tc.deinit();
 
@@ -464,7 +525,7 @@ test "mutate: every type" {
 
 			true,
 			"2023-06-20",
-			"13:35:29",
+			"13:35:29.332000",
 			1687246572940921,
 
 			"dGhpcyBpcyBhIGJsb2I=",
@@ -483,7 +544,7 @@ test "mutate: every type" {
 }
 
 // above tested interval as a string, but we also accept it as an object
-test "mutate: interval as object" {
+test "exec: interval as object" {
 	var tc = t.context(.{});
 	defer tc.deinit();
 
@@ -502,7 +563,7 @@ test "mutate: interval as object" {
 	});
 }
 
-test "mutate: returning multiple rows" {
+test "exec: returning multiple rows" {
 	var tc = t.context(.{});
 	defer tc.deinit();
 
@@ -518,7 +579,7 @@ test "mutate: returning multiple rows" {
 }
 
 // we have special case handling for a single row returned as an i64 "Count"
-test "mutate: special count case" {
+test "exec: special count case" {
 	var tc = t.context(.{});
 	defer tc.deinit();
 
@@ -550,7 +611,7 @@ test "mutate: special count case" {
 	}
 }
 
-test "mutate: with_wrap" {
+test "exec: with_wrap" {
 	var tc = t.context(.{.with_wrap = true});
 	defer tc.deinit();
 
@@ -610,7 +671,7 @@ test "mutate: with_wrap" {
 	}
 }
 
-test "mutate: max_limit" {
+test "exec: max_limit" {
 	var tc = t.context(.{.max_limit = 2});
 	defer tc.deinit();
 

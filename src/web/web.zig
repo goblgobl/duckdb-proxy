@@ -17,7 +17,7 @@ var _request_id: u32 = 0;
 pub fn start(app: *App) !void {
 	{
 		var seed: u64 = undefined;
-		try std.os.getrandom(std.mem.asBytes(&seed));
+		try std.posix.getrandom(std.mem.asBytes(&seed));
 		var r = std.rand.DefaultPrng.init(seed);
 		// request_id is allowed to have duplicates, but we'd like to minimize
 		// that especially around deploys/restarts.
@@ -49,7 +49,7 @@ fn dispatcher(app: *App, action: httpz.Action(*Env), req: *httpz.Request, res: *
 	const validator = try app.validators.acquire({});
 	defer app.validators.release(validator);
 
-	const encoded_request_id = try encodeRequestId(res.arena, app.config.instance_id, @atomicRmw(u32, &_request_id, .Add, 1, .SeqCst));
+	const encoded_request_id = try encodeRequestId(res.arena, app.config.instance_id, @atomicRmw(u32, &_request_id, .Add, 1, .monotonic));
 	res.header("request-id", encoded_request_id);
 
 	var logger = logz.logger().string("$rid", encoded_request_id).multiuse();
@@ -111,9 +111,7 @@ fn dispatcher(app: *App, action: httpz.Action(*Env), req: *httpz.Request, res: *
 }
 
 pub fn validateBody(env: *Env, req: *httpz.Request, v: *validate.Object(void)) !typed.Map {
-	const body = (try req.body()) orelse {
-		return error.InvalidJson;
-	};
+	const body = req.body() orelse return error.InvalidJson;
 
 	const validator = env.validator;
 	const input = try v.validateJsonS(body, validator);
